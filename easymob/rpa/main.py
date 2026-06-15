@@ -7,7 +7,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 from config import (
     SITE_LOGIN, ACCESS_KEY, USERNAME, PASSWORD, MODE, DRY_RUN, CONFIRM_REAL,
-    CONFIRM_CUSTOM_TIME, SEL_ACCESS_KEY, SEL_USERNAME, SEL_PASSWORD, SEL_BTN_LOGIN,
+    CONFIRM_CUSTOM_TIME, WATCHDOG_ENABLED, SEL_ACCESS_KEY, SEL_USERNAME, SEL_PASSWORD, SEL_BTN_LOGIN,
     SEL_BTN_REGISTER, SEL_BTN_CONSULT, DEFAULT_HEADLESS, HORARIOS, JANELA_RETRY_MINUTOS,
     DUPLICATE_TOLERANCE_MINUTES, DAILY_TARGET_MINUTES, LUNCH_MINUTES, SCREENSHOT_POLICY,
     LIVE_PREVIEW, KEEP_LAST_SCREENSHOTS, KEEP_BROWSER_OPEN,
@@ -261,6 +261,7 @@ def close_mark_modal(page, report=None, reason="antes_da_acao"):
         raise RuntimeError("Modal de consulta continuou aberta e bloqueando a ação. Não vou tentar registrar por trás da modal.")
     if closed:
         log("Modal/backdrop fechados com segurança.")
+        append_journal({"action": "modal_fechada", "status": "success", "reason": reason, "severity": "info"})
     return closed
 
 
@@ -768,15 +769,18 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
             if plan.get("ignored_other_days_count"):
                 log(f"Histórico ignorado para decisão de hoje: {plan.get('ignored_other_days_count')} marcações de outros dias.")
             log("Plano calculado: " + json.dumps({k: plan[k] for k in ["status", "action", "label", "allowed", "reason", "next_due", "dry_run"]}, ensure_ascii=False))
+            append_journal({"action": "plano_calculado", "status": plan.get("status"), "plannedTime": horario_alvo_str, "calculatedTime": plan.get("next_due"), "reason": plan.get("reason"), "marksBefore": plan.get("marks"), "severity": "info"})
             step("plan", extra=plan)
 
             # Se o agendamento disparar um pouco antes do horário permitido do retorno/final,
             # o próprio robô aguarda e consulta de novo, em vez de encerrar errado.
             if (not plan_only) and (not plan.get("allowed")) and plan.get("next_due") and plan.get("status") in ("WAITING_LUNCH_RETURN", "WAIT_FINAL_TIME", "WAIT_LUNCH_TIME"):
                 wait_seconds = seconds_until_hhmm(plan.get("next_due"))
-                max_wait = int(os.getenv("EASYMOB_MAX_WAIT_MINUTES", "30")) * 60
+                max_wait = (JANELA_RETRY_MINUTOS if WATCHDOG_ENABLED else int(os.getenv("EASYMOB_MAX_WAIT_MINUTES", "30"))) * 60
                 if wait_seconds is not None and 0 < wait_seconds <= max_wait:
-                    log(f"Aguardando horário correto ({plan.get('next_due')}) por {wait_seconds}s antes de reconsultar.")
+                    log(f"Aguardando horário calculado ({plan.get('next_due')}) por {wait_seconds}s antes de reconsultar.")
+                    update_state(easymob={"routine": {"waitingUntil": plan.get("next_due")}, "watchdog": {"status": "waiting_calculated_time", "lastCycleAt": datetime.now().isoformat(timespec="seconds")}})
+                    append_journal({"action": "aguardando_horario_calculado", "status": "waiting", "plannedTime": horario_alvo_str, "calculatedTime": plan.get("next_due"), "reason": plan.get("reason"), "marksBefore": plan.get("marks"), "severity": "info"})
                     time.sleep(wait_seconds + 3)
                     marks = extract_marks(page, report=report)
                     plan = build_day_plan(marks, target_time=horario_alvo_str, single_run=single_run)
@@ -785,7 +789,9 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
                     log("Plano após espera: " + json.dumps({k: plan[k] for k in ["status", "action", "label", "allowed", "reason", "next_due", "dry_run"]}, ensure_ascii=False))
                     step("plan_after_wait", extra=plan)
                 elif wait_seconds is not None and wait_seconds > max_wait:
-                    log(f"Próxima ação calculada para {plan.get('next_due')}, mas está além do limite de espera automática de {max_wait//60} min. Use agendamento.")
+                    log(f"Próxima ação calculada para {plan.get('next_due')}, fora da janela atual de {max_wait//60} min. Watchdog manterá a próxima checagem; não vou bater ponto cego.")
+                    update_state(easymob={"routine": {"waitingUntil": None}, "watchdog": {"status": "waiting_next_cycle", "lastCycleAt": datetime.now().isoformat(timespec="seconds")}})
+                    append_journal({"action": "fora_da_janela_atual", "status": "waiting_next_cycle", "plannedTime": horario_alvo_str, "calculatedTime": plan.get("next_due"), "reason": "Horário calculado fora da janela atual; manter watchdog ativo.", "marksBefore": plan.get("marks"), "severity": "info"})
 
             if plan_only:
                 report["status"] = "PLAN_ONLY"
@@ -797,8 +803,10 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
                 log(f"DRY RUN: {plan['label']} agora, mas NÃO cliquei em Registrar.")
                 step("dry_run_register_skipped", extra={"target": horario_alvo_str, "plan": plan})
                 report["status"] = "DRY_RUN_READY"
+                append_journal({"action": plan.get("action"), "status": "dry_run", "plannedTime": horario_alvo_str, "calculatedTime": plan.get("next_due"), "reason": "TESTE / NÃO GRAVA", "marksBefore": plan.get("marks"), "severity": "info"})
             else:
                 log(f"MODO REAL: {plan['label']} agora.")
+                append_journal({"action": plan.get("action"), "status": "real_started", "plannedTime": horario_alvo_str, "calculatedTime": plan.get("next_due"), "reason": plan.get("reason"), "marksBefore": plan.get("marks"), "severity": "warning"})
                 before_count = len(plan.get("times") or [])
                 click_register_safely(page, report=report)
                 time.sleep(1.8)

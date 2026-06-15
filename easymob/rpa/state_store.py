@@ -33,7 +33,7 @@ def default_state():
         "today": now.strftime("%Y-%m-%d"),
         "week": now.strftime("%G-W%V"),
         "month": now.strftime("%Y-%m"),
-        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "watchdog": {"status": "idle"}},
+        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "lastError": None, "routine": {"enabled": False, "dryRun": True, "times": [], "nextCheck": None, "waitingUntil": None}, "watchdog": {"status": "idle"}},
         "service": {"lastStatus": "idle", "period": None, "summary": None},
         "portalRh": {"lastStatus": "idle", "period": None, "summary": None},
         "channel": {"lastStatus": "idle", "period": None, "blockingPendencies": []},

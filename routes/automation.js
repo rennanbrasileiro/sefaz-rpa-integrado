@@ -181,6 +181,39 @@ function isBusinessDay(now = new Date()) {
 function runKey(moduleName, label, now = new Date()) {
   return `${now.toISOString().slice(0,10)}|${moduleName}|${label}`;
 }
+
+function nextCheckForTimes(times = [], windowMinutes = 20, now = new Date()) {
+  const normalized = (times || []).filter(t => /^\d{2}:\d{2}$/.test(String(t || ''))).sort();
+  for (let dayOffset = 0; dayOffset < 8; dayOffset++) {
+    const day = new Date(now);
+    day.setDate(day.getDate() + dayOffset);
+    if (dayOffset > 0) day.setHours(0, 0, 0, 0);
+    if (weekdayNumber(day) > 5) continue;
+    for (const hhmm of normalized) {
+      const [h, m] = hhmm.split(':').map(Number);
+      const candidate = new Date(day);
+      candidate.setHours(h, m, 0, 0);
+      const end = new Date(candidate.getTime() + Number(windowMinutes || 20) * 60000);
+      if (end >= now) return candidate.toISOString();
+    }
+  }
+  return null;
+}
+function easyRoutineState(cfg) {
+  const easy = cfg.easyMob || {};
+  const times = easy.times || ['08:00', '12:00', '13:00', '17:00'];
+  return {
+    enabled: cfg.enabled !== false && easy.enabled !== false,
+    dryRun: easy.dryRun !== false,
+    confirmReal: easy.confirmReal === true,
+    times,
+    windowMinutes: easy.windowMinutes ?? 20,
+    retrySeconds: easy.minRetrySeconds ?? 120,
+    businessDaysOnly: easy.businessDaysOnly !== false,
+    nextCheck: nextCheckForTimes(times, easy.windowMinutes ?? 20),
+    mode: easy.dryRun === false ? 'real' : 'teste',
+  };
+}
 function pythonBin() { return process.env.EASYMOB_PYTHON || process.env.PYTHON || 'python'; }
 
 function spawnTracked(command, args, opts, label) {
@@ -208,6 +241,21 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
   const easy = cfg.easyMob || {};
   const userCfg = loadUserConfig() || {};
   const dryRun = easy.dryRun !== false && userCfg.easyDryRun !== false;
+  const critical = stateStore.readPending().filter(p => p.status !== 'closed' && p.severity === 'critical' && p.module === 'easymob');
+  if (!dryRun && easy.confirmReal !== true) {
+    const pending = stateStore.addPending({ module: 'easymob', type: 'execucao_real_bloqueada', severity: 'critical', cause: 'Rotina REAL sem autorização explícita.', plannedTime: targetTime, recommendation: 'Ative a rotina em TESTE ou confirme REAL explicitamente no painel.' });
+    stateStore.appendJournal({ module: 'easymob', action: 'real_blocked', mode: 'real', plannedTime: targetTime, status: 'blocked', severity: 'critical', reason: pending.cause, nextRecommendedAction: pending.recommendation });
+    stateStore.updateState({ easymob: { lastError: pending.cause, routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'blocked', lastCycleAt: new Date().toISOString(), lastError: pending.cause } } });
+    log(`EasyMOB REAL bloqueado: ${pending.cause}`);
+    return;
+  }
+  if (!dryRun && critical.length) {
+    const reason = `Rotina REAL bloqueada por ${critical.length} pendência(s) crítica(s).`;
+    stateStore.appendJournal({ module: 'easymob', action: 'real_blocked', mode: 'real', plannedTime: targetTime, status: 'blocked', severity: 'critical', reason, nextRecommendedAction: 'Resolver pendências antes de automatizar ponto real.' });
+    stateStore.updateState({ easymob: { lastError: reason, watchdog: { status: 'blocked', lastCycleAt: new Date().toISOString(), lastError: reason } } });
+    log(`EasyMOB REAL bloqueado: ${reason}`);
+    return;
+  }
   const env = {
     ...process.env,
     PYTHONIOENCODING: 'utf-8',
@@ -234,6 +282,8 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
   const args = ['runner.py', '--single-run', '--slowmo', String(easy.slowmo || 700)];
   if (easy.headless !== false) args.push('--headless');
   else args.push('--demo');
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'cycle_started', lastCycleAt: new Date().toISOString() }, plannedTime: targetTime } });
+  stateStore.appendJournal({ module: 'easymob', action: 'consulta_iniciada', mode: dryRun ? 'teste' : 'real', plannedTime: targetTime, status: 'started', severity: 'info', reason: 'Watchdog iniciou conferência no horário de referência; o plano decidirá o horário calculado.' });
   spawnTracked(pythonBin(), args, { cwd: EASY_RPA, env }, `EasyMOB/${source}/${targetTime}${dryRun ? '/dry-run' : '/real'}`);
 }
 
@@ -259,6 +309,7 @@ function runDueTasks(now = new Date()) {
   const easy = cfg.easyMob || {};
   if (easy.enabled) {
     if (easy.businessDaysOnly !== false && !isBusinessDay(now)) {
+      stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'waiting_business_day', lastCycleAt: now.toISOString() } } });
       return;
     }
     // EasyMOB é watchdog: não executa uma única vez e bloqueia o resto do dia.
@@ -277,6 +328,7 @@ function runDueTasks(now = new Date()) {
       }
     }
   }
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: Array.from(childProcs).some(p => p.__moduleName === 'easymob') ? 'running' : 'idle', lastCycleAt: now.toISOString() } } });
   const ch = cfg.channel || {};
   if (ch.enabled && weekdayNumber(now) === Number(ch.weeklyDay || 5) && isSameMinuteHHMM(ch.weeklyTime || '16:30', now, 3)) {
     const key = runKey('channel', ch.weeklyTime || '16:30', now);
@@ -289,7 +341,9 @@ function startScheduler() {
   const cfg = loadConfig();
   running = true;
   log(`Orquestrador iniciado. enabled=${cfg.enabled}; intervalo=${cfg.checkEverySeconds || 30}s`);
-  stateStore.updateState({ easymob: { watchdog: { status: 'running', startedAt: new Date().toISOString(), intervalSeconds: cfg.checkEverySeconds || 30 } } });
+  const routine = easyRoutineState(cfg);
+  stateStore.updateState({ easymob: { routine, watchdog: { status: 'running', startedAt: new Date().toISOString(), intervalSeconds: cfg.checkEverySeconds || 30 } } });
+  stateStore.appendJournal({ module: 'easymob', action: 'rotina_ativada', mode: routine.dryRun ? 'teste' : 'real', status: 'success', severity: 'info', reason: 'Rotina diária ativada pelo orquestrador.', nextRecommendedAction: routine.dryRun ? 'Validar em TESTE antes de ativar REAL.' : 'Monitorar journal e pendências.' });
   timer = setInterval(() => {
     try { runDueTasks(new Date()); } catch (e) { log(`Erro no ciclo do orquestrador: ${e.message}`); }
   }, Math.max(10, Number(cfg.checkEverySeconds || 30)) * 1000);
@@ -298,14 +352,15 @@ function stopScheduler() {
   if (timer) clearInterval(timer);
   timer = null; running = false;
   log('Orquestrador parado.');
-  stateStore.updateState({ easymob: { watchdog: { status: 'stopped', stoppedAt: new Date().toISOString() } } });
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(loadConfig()), enabled: false }, watchdog: { status: 'stopped', stoppedAt: new Date().toISOString() } } });
+  stateStore.appendJournal({ module: 'easymob', action: 'rotina_parada', mode: 'controle', status: 'success', severity: 'info', reason: 'Rotina diária parada pelo usuário.' });
 }
 
 router.get('/status', (_req, res) => {
   const cfg = loadConfig();
   let fileLog = '';
   try { if (fs.existsSync(AUTO_LOG)) fileLog = fs.readFileSync(AUTO_LOG, 'utf-8').split(/\r?\n/).slice(-120).join('\n'); } catch (_) {}
-  res.json({ running, config: cfg, activeChildren: childProcs.size, log: automationLog, fileLog });
+  res.json({ running, config: cfg, routine: easyRoutineState(cfg), activeChildren: childProcs.size, log: automationLog, fileLog });
 });
 router.get('/log', (_req, res) => {
   let fileLog = '';
@@ -313,7 +368,7 @@ router.get('/log', (_req, res) => {
   res.json({ ok: true, log: automationLog, fileLog });
 });
 router.get('/config', (_req, res) => res.json({ ok: true, config: loadConfig() }));
-router.post('/config', (req, res) => { saveConfig(req.body || {}); res.json({ ok: true, config: loadConfig() }); });
+router.post('/config', (req, res) => { saveConfig(req.body || {}); const cfg = loadConfig(); stateStore.updateState({ easymob: { routine: easyRoutineState(cfg) } }); stateStore.appendJournal({ module: 'easymob', action: 'rotina_configurada', mode: cfg.easyMob?.dryRun === false ? 'real' : 'teste', status: 'success', severity: 'info', reason: 'Configuração da rotina diária salva.' }); res.json({ ok: true, config: cfg, routine: easyRoutineState(cfg) }); });
 router.post('/start', (_req, res) => { startScheduler(); res.json({ ok: true, running }); });
 router.post('/stop', (_req, res) => { stopScheduler(); res.json({ ok: true, running }); });
 router.post('/run-now', (req, res) => {

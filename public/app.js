@@ -44,9 +44,9 @@ function todayBody(){ return easyBody({ targetTime: val('todayTarget'), easyDryR
 function requireRealConfirmation(b){ const times=splitCsv(b.easyTimes); if(b.targetTime && times.length && !times.includes(b.targetTime) && !b.confirmCustomTime){ if(!confirm(`O horário ${b.targetTime} está fora da regra (${times.join(', ')}). Permitir execução fora da regra?`))return false; b.confirmCustomTime=true; } if(!b.easyDryRun){ if(!confirm('ATENÇÃO: modo REAL do EasyMOB pode gravar ponto. Confirma execução real?'))return false; b.confirmReal=true; } return true; }
 async function easyTestLogin(){ await saveAll(); const b=easyBody({easyDryRun:true,dryRun:true,targetTime:''}); await api('/easymob/test-login',{method:'POST',body:JSON.stringify(b)}); nav('logs'); setTimeout(refreshLogs,800); }
 async function easyPlan(){ await saveAll(); const b=easyBody({easyDryRun:true,dryRun:true}); await api('/easymob/plan',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['easyPlanBox'],90000); }
-async function easyPlanFromToday(){ await saveAll(); const b=todayBody(); b.easyDryRun=true; b.dryRun=true; await api('/easymob/plan',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['todayPlan','easyPlanBox'],90000); }
+async function easyPlanFromToday(){ await saveAll(); const b=todayBody(); b.easyDryRun=true; b.dryRun=true; await api('/easymob/plan',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['easyPlanBox'],90000); }
 async function easyRun(){ await saveAll(); const b=easyBody(); if(!requireRealConfirmation(b))return; await api('/easymob/run',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['easyPlanBox'],120000); }
-async function easyRunFromToday(){ await saveAll(); const b=todayBody(); if(!requireRealConfirmation(b))return; await api('/easymob/run',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['todayPlan','easyPlanBox'],120000); }
+async function easyRunFromToday(){ await saveAll(); const b=todayBody(); if(!requireRealConfirmation(b))return; await api('/easymob/run',{method:'POST',body:JSON.stringify(b)}); nav('logs'); await waitEasyFinishedAndRender(['easyPlanBox'],120000); }
 async function easySchedule(){ await saveAll(); const b=easyBody(); if(!b.targetTime){toast('Informe o horário único em HH:MM.');return;} if(!requireRealConfirmation(b))return; const r=await api('/easymob/schedule',{method:'POST',body:JSON.stringify(b)}); $('easyPlanBox').innerHTML=planHtml(r.singlePlan, 'Agendamento criado'); toast('Agendamento EasyMOB salvo. Ele consultará o dia antes de agir.'); refreshStatus(); }
 async function easyCancel(){ await api('/easymob/cancel',{method:'POST'}); refreshLogs(); }
 function planHtml(p,title='Plano'){
@@ -95,6 +95,12 @@ async function channelRun(dry){ const b=config(); b.scheduleRows=parseScheduleTe
 async function channelCancel(){ await api('/cancel',{method:'POST'}); refreshLogs(); }
 async function easyEnableDayRoutine(){
   await saveAll();
+  const dryRun = bool('easyDryRun');
+  let confirmReal = false;
+  if(!dryRun){
+    if(!confirm('ATENÇÃO: Esta rotina poderá registrar ponto automaticamente nos horários calculados pelo EasyMOB. Confirma autorização REAL explícita?')) return;
+    confirmReal = true;
+  }
   const cfg={
     enabled:true,
     checkEverySeconds:Number(val('autoInterval')||30),
@@ -103,16 +109,18 @@ async function easyEnableDayRoutine(){
       times:splitCsv(val('easyTimes')),
       windowMinutes:Number(val('easyRetryMinutes')||20),
       duplicateToleranceMinutes:Number(val('easyDuplicateToleranceMinutes')||10),
-      dryRun:bool('easyDryRun'),
+      dryRun,
+      confirmReal,
       headless:bool('easyHeadless'),
       slowmo:Number(val('easySlowmo')||700),
-      businessDaysOnly:true
+      businessDaysOnly:true,
+      watchdog:true
     },
     channel:{enabled:bool('autoChannel'), dryRun:true}
   };
   const r=await api('/automation/config',{method:'POST',body:JSON.stringify(cfg)});
   await api('/automation/start',{method:'POST'});
-  if($('easyPlanBox')) $('easyPlanBox').innerHTML=planHtml({label:'Rotina diária ativada', mode: cfg.easyMob.dryRun?'TESTE / NÃO GRAVA':'REAL / PODE GRAVAR', behavior:`O orquestrador vai checar ${cfg.easyMob.times.join(', ')} em dias úteis, consultar o EasyMOB antes de agir e respeitar as regras. Ele roda enquanto o npm start estiver aberto.`}, 'Automação');
+  if($('easyAutomationBox')) $('easyAutomationBox').innerHTML=planHtml({label:'Rotina diária ativada', mode: cfg.easyMob.dryRun?'TESTE / NÃO GRAVA':'REAL / PODE GRAVAR', behavior:`O orquestrador vai checar ${cfg.easyMob.times.join(', ')} em dias úteis, consultar o EasyMOB antes de agir e respeitar as regras. Ele roda enquanto o npm start estiver aberto.`}, 'Automação');
   toast('Rotina diária EasyMOB ativada enquanto o servidor estiver aberto.');
   refreshStatus();
 }
@@ -121,13 +129,13 @@ async function easyRunFullDayTest(){
   const b=easyBody({easyDryRun:true,dryRun:true,targetTime:''});
   await api('/easymob/run',{method:'POST',body:JSON.stringify(b)});
   nav('logs');
-  await waitEasyFinishedAndRender(['easyPlanBox','todayPlan'],120000);
+  await waitEasyFinishedAndRender(['easyPlanBox'],120000);
 }
 async function saveAutomation(){ const cfg={enabled:bool('autoEnabled'), checkEverySeconds:Number(val('autoInterval')||30), easyMob:{enabled:bool('autoEasy'), times:splitCsv(val('easyTimes')), dryRun:bool('easyDryRun'), headless:bool('easyHeadless')}, channel:{enabled:bool('autoChannel'), dryRun:true}}; const r=await api('/automation/config',{method:'POST',body:JSON.stringify(cfg)}); $('autoResult').innerHTML='<pre class="log" style="height:160px">'+json(r)+'</pre>'; }
 async function startAutomation(){ const r=await api('/automation/start',{method:'POST'}); $('autoResult').innerHTML='<div class="alert ok">Orquestrador iniciado.</div>'; refreshStatus(); }
 async function stopAutomation(){ await api('/automation/stop',{method:'POST'}); $('autoResult').innerHTML='<div class="alert warn">Orquestrador parado.</div>'; refreshStatus(); }
 async function refreshAutomation(){ const r=await api('/automation/status'); $('autoResult').innerHTML='<pre class="log" style="height:220px">'+json(r)+'</pre>'; }
-async function refreshLogs(){ try{ const e=await api('/easymob/log'); $('logEasy').textContent=readableLog(e); const p=e.latestReport?.plan_after_register || e.latestReport?.plan_after_wait || e.latestReport?.plan || e.singlePlan; if(p){ if($('easyPlanBox')) $('easyPlanBox').innerHTML=planHtml(p); if($('todayPlan')) $('todayPlan').innerHTML=planHtml(p); } }catch{} try{ const c=await api('/log'); $('logChannel').textContent=(c.log||[]).join(''); }catch{} try{ const p=await api('/portalrh/log'); $('logPortal').textContent=(p.log||[]).join(''); }catch{} try{ const a=await api('/automation/log'); $('logAuto').textContent=(a.fileLog || (a.log||[]).join('\n')); }catch{} await refreshCentralState(); }
+async function refreshLogs(){ try{ const e=await api('/easymob/log'); $('logEasy').textContent=readableLog(e); const p=e.latestReport?.plan_after_register || e.latestReport?.plan_after_wait || e.latestReport?.plan || e.singlePlan; if(p){ if($('easyPlanBox')) $('easyPlanBox').innerHTML=planHtml(p);  } }catch{} try{ const c=await api('/log'); $('logChannel').textContent=(c.log||[]).join(''); }catch{} try{ const p=await api('/portalrh/log'); $('logPortal').textContent=(p.log||[]).join(''); }catch{} try{ const a=await api('/automation/log'); $('logAuto').textContent=(a.fileLog || (a.log||[]).join('\n')); }catch{} await refreshCentralState(); }
 function refreshEasyShot(){ const img=$('shotEasy'); img.src='/api/easymob/screenshot?t='+Date.now(); }
 function refreshChannelShot(){ const img=$('shotChannel'); img.src='/api/screenshot?t='+Date.now(); }
 async function refreshStatus(){ try{ const e=await api('/easymob/status'); $('stEasy').textContent=e.status; }catch{$('stEasy').textContent='off'} try{ const c=await api('/status'); $('stChannel').textContent=c.status; }catch{$('stChannel').textContent='off'} try{ const p=await api('/portalrh/status'); $('stPortal').textContent=p.status; }catch{$('stPortal').textContent='off'} try{ const a=await api('/automation/status'); $('stAuto').textContent=a.running?'running':'idle'; }catch{$('stAuto').textContent='off'} const running=[...document.querySelectorAll('.stat b')].some(x=>/running/i.test(x.textContent)); $('globalDot').className='dot '+(running?'running':''); }
@@ -140,12 +148,27 @@ function stateSummaryHtml(state = {}, pending = []) {
   const channel = state.channel || {};
   return `<div class="state-grid"><div class="state-card"><span>Hoje</span><b>${state.today || '--'}</b><small>Semana ${state.week || '--'} · Mês ${state.month || '--'}</small></div><div class="state-card"><span>Próxima EasyMOB</span><b>${e.nextAction || '--'}</b><small>${e.plannedTime || 'sem horário previsto'}</small></div><div class="state-card"><span>Watchdog</span><b>${e.watchdog?.status || '--'}</b><small>${e.lastExecution?.status || 'sem execução'}</small></div><div class="state-card danger"><span>Pendências</span><b>${pending.length}</b><small>${pending.length ? 'exigem conferência' : 'sem bloqueios abertos'}</small></div></div><div class="state-grid"><div class="state-card"><span>Service</span><b>${service.lastStatus || '--'}</b><small>${service.period?.dataInicio || '--'} até ${service.period?.dataFim || '--'}</small></div><div class="state-card"><span>Portal RH</span><b>${portal.lastStatus || '--'}</b><small>${portal.period?.dataInicio || '--'} até ${portal.period?.dataFim || '--'}</small></div><div class="state-card"><span>Channel</span><b>${channel.lastStatus || '--'}</b><small>${(channel.blockingPendencies || []).length} pendência(s) impeditiva(s)</small></div></div>`;
 }
+
+function listHtml(items = []){ return items.length ? `<ul class="clean-list">${items.map(x=>`<li>${x}</li>`).join('')}</ul>` : '<span class="muted">--</span>'; }
+function renderEasyMobState(state = {}, easyPending = []){
+  const e = state.easymob || {};
+  const plan = e.lastPlan || {};
+  const marks = e.marksToday || plan.marks || [];
+  const routine = e.routine || {};
+  const watchdog = e.watchdog || {};
+  const last = e.lastExecution || {};
+  const mode = routine.dryRun === false ? 'REAL / PODE GRAVAR' : 'TESTE / NÃO GRAVA';
+  if($('easyTodaySummary')) $('easyTodaySummary').innerHTML = `<div class="state-grid"><div class="state-card"><span>Data</span><b>${state.today || plan.date || '--'}</b><small>${marks.length} marcação(ões) hoje</small></div><div class="state-card"><span>Marcações</span><b>${marks.length}</b><small>${marks.join(' · ') || 'nenhuma'}</small></div><div class="state-card"><span>Próxima ação</span><b>${e.nextAction || plan.action || '--'}</b><small>${e.plannedTime || plan.next_due || 'sem horário'}</small></div><div class="state-card"><span>Status</span><b>${plan.status || last.status || '--'}</b><small>${plan.allowed === true ? 'permitido' : plan.allowed === false ? 'aguardando/bloqueado' : 'sem plano'}</small></div></div>`;
+  if($('easyAutomationBox')) $('easyAutomationBox').innerHTML = `<div class="state-grid"><div class="state-card"><span>Rotina</span><b>${routine.enabled ? 'ativa' : 'parada'}</b><small>${watchdog.status || 'idle'}</small></div><div class="state-card"><span>Modo</span><b>${mode}</b><small>${routine.confirmReal ? 'REAL autorizado' : 'sem autorização real'}</small></div><div class="state-card"><span>Horários referência</span><b>${(routine.times || []).join(', ') || val('easyTimes') || '--'}</b><small>conferência, não ponto cego</small></div><div class="state-card"><span>Próxima checagem</span><b>${routine.nextCheck || '--'}</b><small>último ciclo: ${watchdog.lastCycleAt || '--'}</small></div></div><div class="alert" style="margin-top:12px"><b>Próxima execução calculada:</b> ${e.plannedTime || plan.next_due || '--'} · <b>Grava?</b> ${routine.dryRun === false ? 'somente se plano permitido e REAL autorizado' : 'não, TESTE'}</div>${watchdog.lastError ? `<div class="alert danger" style="margin-top:12px">${watchdog.lastError}</div>` : ''}`;
+  if($('easyPlanBox') && plan.action) $('easyPlanBox').innerHTML = planHtml(plan, 'Plano calculado');
+  if($('easyPendingBox')) $('easyPendingBox').innerHTML = easyPending.length ? easyPending.map(p=>`<div class="alert ${p.severity === 'critical' ? 'danger' : 'warn'}" style="margin-bottom:10px"><b>${p.type || 'pendência'}</b> · ${p.severity || 'warning'}<br>Motivo: ${p.cause || p.reason || '--'}<br>Horário: ${p.plannedTime || '--'}<br>Recomendação: ${p.recommendation || p.nextRecommendedAction || '--'}</div>`).join('') : '<div class="alert ok">Sem pendências EasyMOB abertas.</div>';
+}
 async function refreshCentralState(){
   try{
     const r = await api('/state');
     const state = r.state || {}; const pending = r.pending || [];
     if($('stateOverview')) $('stateOverview').innerHTML = stateSummaryHtml(state, pending);
-    if($('easyStateBox')) $('easyStateBox').innerHTML = stateSummaryHtml({easymob: state.easymob, today: state.today, week: state.week, month: state.month}, pending.filter(p=>p.module==='easymob'));
+    renderEasyMobState(state, pending.filter(p=>p.module==='easymob'));
     if($('journalSummary')) $('journalSummary').textContent = (r.journal || []).map(e => `${e.at || ''} [${e.module || '-'}] ${e.action || '-'} ${e.status || '-'} ${e.reason || e.error || ''}`).join('\n');
     if($('channelPending')) $('channelPending').innerHTML = pending.length ? `<div class="alert warn">${pending.length} pendência(s) aberta(s). Execução REAL do Channel deve aguardar conferência.</div>` : '<div class="alert ok">Sem pendências impeditivas abertas.</div>';
   }catch(e){ console.warn('state unavailable', e); }
