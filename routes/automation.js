@@ -87,8 +87,20 @@ function readJson(file, fallback) {
   } catch (_) { return fallback; }
 }
 
-function loadConfig() { ensureDirs(); return readJson(AUTO_CFG, defaultConfig()); }
-function saveConfig(cfg) { ensureDirs(); fs.writeFileSync(AUTO_CFG, JSON.stringify({ ...defaultConfig(), ...cfg }, null, 2), 'utf-8'); }
+function loadConfig() { ensureDirs(); return mergeConfig(readJson(AUTO_CFG, {})); }
+function mergeConfig(cfg = {}) {
+  const base = defaultConfig();
+  return {
+    ...base,
+    ...cfg,
+    easyMob: { ...base.easyMob, ...(cfg.easyMob || {}) },
+    service: { ...base.service, ...(cfg.service || {}) },
+    portalRh: { ...base.portalRh, ...(cfg.portalRh || {}) },
+    channel: { ...base.channel, ...(cfg.channel || {}) },
+    monthly: { ...base.monthly, ...(cfg.monthly || {}) },
+  };
+}
+function saveConfig(cfg) { ensureDirs(); fs.writeFileSync(AUTO_CFG, JSON.stringify(mergeConfig(cfg), null, 2), 'utf-8'); }
 function loadUserConfig() { return readJson(USER_CFG, null); }
 
 function log(msg) {
@@ -199,13 +211,18 @@ function nextCheckForTimes(times = [], windowMinutes = 20, now = new Date()) {
   }
   return null;
 }
+function approvalValid(until) {
+  return Boolean(until) && new Date(until).getTime() > Date.now();
+}
 function easyRoutineState(cfg) {
   const easy = cfg.easyMob || {};
   const times = easy.times || ['08:00', '12:00', '13:00', '17:00'];
   return {
     enabled: cfg.enabled !== false && easy.enabled !== false,
     dryRun: easy.dryRun !== false,
-    confirmReal: easy.confirmReal === true,
+    confirmReal: easy.confirmReal === true && approvalValid(easy.confirmRealUntil),
+    confirmRealUntil: easy.confirmRealUntil || '',
+    approvalDaily: easy.approvalDaily === true,
     times,
     windowMinutes: easy.windowMinutes ?? 20,
     retrySeconds: easy.minRetrySeconds ?? 120,
@@ -242,8 +259,9 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
   const userCfg = loadUserConfig() || {};
   const dryRun = easy.dryRun !== false && userCfg.easyDryRun !== false;
   const critical = stateStore.readPending().filter(p => p.status !== 'closed' && p.severity === 'critical' && p.module === 'easymob');
-  if (!dryRun && easy.confirmReal !== true) {
-    const pending = stateStore.addPending({ module: 'easymob', type: 'execucao_real_bloqueada', severity: 'critical', cause: 'Rotina REAL sem autorização explícita.', plannedTime: targetTime, recommendation: 'Ative a rotina em TESTE ou confirme REAL explicitamente no painel.' });
+  const realApproved = easy.confirmReal === true && approvalValid(easy.confirmRealUntil);
+  if (!dryRun && !realApproved) {
+    const pending = stateStore.addPending({ module: 'easymob', type: 'execucao_real_bloqueada', severity: 'critical', cause: 'Rotina REAL sem autorização diária válida.', plannedTime: targetTime, recommendation: 'Em Configurações > EasyMOB, selecione Autorização REAL hoje e ative novamente a rotina.' });
     stateStore.appendJournal({ module: 'easymob', action: 'real_blocked', mode: 'real', plannedTime: targetTime, status: 'blocked', severity: 'critical', reason: pending.cause, nextRecommendedAction: pending.recommendation });
     stateStore.updateState({ easymob: { lastError: pending.cause, routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'blocked', lastCycleAt: new Date().toISOString(), lastError: pending.cause } } });
     log(`EasyMOB REAL bloqueado: ${pending.cause}`);
@@ -269,7 +287,7 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
     EASYMOB_JANELA_RETRY_MINUTOS: String(easy.windowMinutes ?? 20),
     EASYMOB_DUPLICATE_TOLERANCE_MINUTES: String(easy.duplicateToleranceMinutes ?? 10),
     EASYMOB_DRY_RUN: String(dryRun),
-    EASYMOB_CONFIRM_REAL: String(!dryRun && easy.confirmReal === true),
+    EASYMOB_CONFIRM_REAL: String(!dryRun && realApproved),
     EASYMOB_CONFIRM_CUSTOM_TIME: 'true',
     EASYMOB_WATCHDOG_ENABLED: 'true',
     EASYMOB_BUSINESS_DAYS_ONLY: String(easy.businessDaysOnly !== false),
@@ -368,7 +386,7 @@ router.get('/log', (_req, res) => {
   res.json({ ok: true, log: automationLog, fileLog });
 });
 router.get('/config', (_req, res) => res.json({ ok: true, config: loadConfig() }));
-router.post('/config', (req, res) => { saveConfig(req.body || {}); const cfg = loadConfig(); stateStore.updateState({ easymob: { routine: easyRoutineState(cfg) } }); stateStore.appendJournal({ module: 'easymob', action: 'rotina_configurada', mode: cfg.easyMob?.dryRun === false ? 'real' : 'teste', status: 'success', severity: 'info', reason: 'Configuração da rotina diária salva.' }); res.json({ ok: true, config: cfg, routine: easyRoutineState(cfg) }); });
+router.post('/config', (req, res) => { const incoming = req.body || {}; if (incoming.easyMob?.dryRun === false && !approvalValid(incoming.easyMob?.confirmRealUntil)) { incoming.easyMob.confirmReal = false; incoming.easyMob.approvalDaily = false; } saveConfig(incoming); const cfg = loadConfig(); const routine = easyRoutineState(cfg); stateStore.updateState({ easymob: { routine } }); stateStore.appendJournal({ module: 'easymob', action: 'rotina_configurada', mode: cfg.easyMob?.dryRun === false ? 'real' : 'teste', status: 'success', severity: 'info', reason: routine.confirmReal ? 'Rotina REAL configurada com autorização diária válida.' : 'Configuração da rotina diária salva.' }); res.json({ ok: true, config: cfg, routine }); });
 router.post('/start', (_req, res) => { startScheduler(); res.json({ ok: true, running }); });
 router.post('/stop', (_req, res) => { stopScheduler(); res.json({ ok: true, running }); });
 router.post('/run-now', (req, res) => {
