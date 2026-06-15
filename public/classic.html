@@ -1,0 +1,3048 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SEFAZ RPA — Painel de Controle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────
+   TOKENS
+───────────────────────────────────────────── */
+:root {
+  --bg:        #0f1117;
+  --surface:   #171b26;
+  --surface2:  #1e2333;
+  --surface3:  #252b3b;
+  --border:    rgba(255,255,255,.07);
+  --border2:   rgba(255,255,255,.12);
+  --green:     #00d68f;
+  --green-dim: rgba(0,214,143,.12);
+  --blue:      #4c9aff;
+  --blue-dim:  rgba(76,154,255,.12);
+  --amber:     #ffab00;
+  --amber-dim: rgba(255,171,0,.12);
+  --red:       #ff5c5c;
+  --red-dim:   rgba(255,92,92,.12);
+  --purple:    #9b7ff4;
+  --text:      #e8ecf5;
+  --text2:     #8892aa;
+  --text3:     #4a5470;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'Plus Jakarta Sans', sans-serif;
+  --r:         8px;
+  --r2:        14px;
+}
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+
+html, body { height:100%; overflow:hidden; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ─────────────────────────────────────────────
+   SCROLLBAR
+───────────────────────────────────────────── */
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--surface3); border-radius:4px; }
+
+/* ─────────────────────────────────────────────
+   LAYOUT
+───────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+}
+
+/* ─────────────────────────────────────────────
+   TOPBAR
+───────────────────────────────────────────── */
+.topbar {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.brand-icon {
+  width: 32px; height: 32px;
+  background: var(--green);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+
+.brand-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -.3px;
+}
+
+.brand-name span { color: var(--green); }
+
+.topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text3);
+  flex-shrink: 0;
+  transition: all .3s;
+}
+.status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.2s infinite; }
+.status-dot.done    { background: var(--blue); }
+.status-dot.error   { background: var(--red); }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+.top-clock {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text2);
+  margin-left: auto;
+}
+
+/* ─────────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────────── */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px;
+  overflow-y: auto;
+  gap: 2px;
+}
+
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text3);
+  padding: 12px 10px 6px;
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all .15s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-btn:hover { background: var(--surface2); color: var(--text); }
+
+.nav-btn.active {
+  background: var(--green-dim);
+  color: var(--green);
+  font-weight: 600;
+}
+
+.nav-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+
+.nav-spacer { flex: 1; }
+
+/* ─────────────────────────────────────────────
+   MAIN CONTENT
+───────────────────────────────────────────── */
+.main {
+  overflow-y: auto;
+  padding: 28px 32px;
+  background: var(--bg);
+}
+
+/* ─────────────────────────────────────────────
+   PANELS
+───────────────────────────────────────────── */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ─────────────────────────────────────────────
+   PAGE HEADER
+───────────────────────────────────────────── */
+.page-hd {
+  margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -.3px;
+}
+
+.page-sub {
+  font-size: 14px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+/* ─────────────────────────────────────────────
+   CARDS
+───────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title::before {
+  content: '';
+  width: 3px; height: 14px;
+  background: var(--green);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────
+   FORM ELEMENTS
+───────────────────────────────────────────── */
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 7px;
+  letter-spacing: .03em;
+}
+
+input[type=text],
+input[type=email],
+input[type=password],
+input[type=number],
+input[type=time],
+input[type=month],
+select,
+textarea {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+  appearance: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(0,214,143,.1);
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238892aa' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+select option { background: var(--surface2); color: var(--text); }
+
+textarea { resize: vertical; line-height: 1.6; min-height: 80px; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
+
+/* ─────────────────────────────────────────────
+   BUTTONS
+───────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--r);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all .18s;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--green);
+  color: #001a0f;
+}
+.btn-primary:hover { background: #00ffaa; transform: translateY(-1px); box-shadow: 0 4px 18px rgba(0,214,143,.3); }
+
+.btn-blue {
+  background: var(--blue);
+  color: #fff;
+}
+.btn-blue:hover { background: #74b4ff; }
+
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--text2);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { background: var(--surface3); color: var(--text); }
+
+.btn-danger {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(255,92,92,.25);
+}
+.btn-danger:hover { background: rgba(255,92,92,.22); }
+
+.btn-sm { padding: 7px 14px; font-size: 13px; }
+
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
+/* ─────────────────────────────────────────────
+   TOGGLE
+───────────────────────────────────────────── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.toggle-wrap {
+  position: relative;
+  width: 44px; height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-wrap input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--surface3);
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  cursor: pointer;
+  transition: .2s;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 3px;
+  width: 16px; height: 16px;
+  background: var(--text3);
+  border-radius: 50%;
+  transition: .2s;
+}
+
+.toggle-wrap input:checked + .toggle-slider {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+
+.toggle-wrap input:checked + .toggle-slider::after {
+  background: var(--green);
+  transform: translateX(20px);
+}
+
+.toggle-label { font-size: 14px; color: var(--text2); }
+
+/* ─────────────────────────────────────────────
+   MODE TABS
+───────────────────────────────────────────── */
+.mode-tabs {
+  display: flex;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  width: fit-content;
+  margin-bottom: 18px;
+}
+
+.mode-tab {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text2);
+  background: none;
+  border: none;
+  transition: all .18s;
+}
+
+.mode-tab.active {
+  background: var(--green);
+  color: #001a0f;
+}
+
+/* ─────────────────────────────────────────────
+   PROJECTS
+───────────────────────────────────────────── */
+.project-list { display: flex; flex-direction: column; gap: 10px; }
+
+.project-item {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 16px 18px;
+  transition: border-color .2s;
+}
+
+.project-item:hover { border-color: var(--border2); }
+
+.project-item-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.project-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--blue-dim);
+  color: var(--blue);
+  border: 1px solid rgba(76,154,255,.2);
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.project-name {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.project-fields { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; }
+
+.btn-remove {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  background: var(--red-dim);
+  border: 1px solid rgba(255,92,92,.2);
+  color: var(--red);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: all .18s;
+}
+
+.btn-remove:hover { background: rgba(255,92,92,.22); }
+
+.add-project-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 14px;
+}
+
+.add-project-row select { flex: 1; }
+
+/* ─────────────────────────────────────────────
+   TABLE
+───────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-top: 4px;
+}
+
+table { width: 100%; border-collapse: collapse; }
+
+thead th {
+  background: var(--surface2);
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 11px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--surface2); }
+
+.td-green { color: var(--green); font-weight: 600; }
+.td-amber { color: var(--amber); }
+.td-red   { color: var(--red); }
+.td-blue  { color: var(--blue); }
+.td-dim   { color: var(--text3); }
+
+/* ─────────────────────────────────────────────
+   STATS ROW
+───────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 18px 20px;
+}
+
+.stat-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--green);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+/* ─────────────────────────────────────────────
+   LOG BOX
+───────────────────────────────────────────── */
+.log-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px;
+  height: 340px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text2);
+}
+
+.log-green  { color: var(--green); }
+.log-red    { color: var(--red); }
+.log-blue   { color: var(--blue); }
+.log-amber  { color: var(--amber); }
+.log-purple { color: var(--purple); }
+
+/* ─────────────────────────────────────────────
+   CODE BLOCK
+───────────────────────────────────────────── */
+pre.codeblock {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text2);
+  overflow: auto;
+  max-height: 380px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ─────────────────────────────────────────────
+   ALERT BANNERS
+───────────────────────────────────────────── */
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--r);
+  font-size: 14px;
+  margin-bottom: 16px;
+  line-height: 1.5;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.alert-info   { background: var(--blue-dim);  border: 1px solid rgba(76,154,255,.2); color: #93c5fd; }
+.alert-ok     { background: var(--green-dim); border: 1px solid rgba(0,214,143,.2);  color: var(--green); }
+.alert-warn   { background: var(--amber-dim); border: 1px solid rgba(255,171,0,.2);  color: var(--amber); }
+.alert-danger { background: var(--red-dim);   border: 1px solid rgba(255,92,92,.2);  color: var(--red); }
+
+/* ─────────────────────────────────────────────
+   VIEWER
+───────────────────────────────────────────── */
+.viewer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.viewer-dots { display: flex; gap: 6px; }
+.vd { width: 10px; height: 10px; border-radius: 50%; }
+.vd-r { background: #ff5f57; }
+.vd-y { background: #febc2e; }
+.vd-g { background: #28c840; }
+
+.viewer-url {
+  flex: 1;
+  background: var(--surface3);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.viewer-body {
+  height: 460px;
+  background: #090d16;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.viewer-idle {
+  text-align: center;
+  color: var(--text3);
+  font-size: 14px;
+  line-height: 2.2;
+}
+
+.viewer-idle-icon { font-size: 40px; margin-bottom: 10px; }
+
+#ssfeed {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: none;
+  position: absolute;
+  inset: 0;
+}
+
+.viewer-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  backdrop-filter: blur(3px);
+  z-index: 5;
+}
+
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--surface3);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.viewer-action {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--green);
+  max-width: 280px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* ─────────────────────────────────────────────
+   STEP TRACKER
+───────────────────────────────────────────── */
+.steps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.step {
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-family: var(--mono);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text3);
+  transition: all .25s;
+}
+
+.step.done   { background: var(--green-dim); color: var(--green); border-color: rgba(0,214,143,.3); }
+.step.active { background: var(--blue-dim);  color: var(--blue);  border-color: rgba(76,154,255,.3); animation: pulse 1s infinite; }
+
+/* ─────────────────────────────────────────────
+   CALCULATOR
+───────────────────────────────────────────── */
+.calc-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+.big-clock {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--green);
+  text-align: center;
+  padding: 18px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  letter-spacing: .04em;
+  margin-bottom: 14px;
+}
+
+.progress-bar {
+  background: var(--surface3);
+  border-radius: 8px;
+  height: 16px;
+  overflow: hidden;
+  position: relative;
+  margin: 12px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), #00ffaa);
+  border-radius: 8px;
+  transition: width 1s ease;
+}
+
+.progress-fill.over { background: linear-gradient(90deg, var(--blue), var(--purple)); }
+
+.progress-label {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--mono);
+  text-shadow: 0 0 6px rgba(0,0,0,.8);
+}
+
+.metrics-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.metric-row:last-child { border-bottom: none; }
+
+.metric-label { color: var(--text2); }
+.metric-value { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.metric-value.green  { color: var(--green); }
+.metric-value.amber  { color: var(--amber); }
+.metric-value.red    { color: var(--red); }
+.metric-value.blue   { color: var(--blue); }
+
+.pontos-display {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--text2);
+  min-height: 90px;
+}
+
+.ponto-line { display: flex; justify-content: space-between; }
+.ponto-ok   { color: var(--green); }
+.ponto-now  { color: var(--amber); }
+.ponto-sep  { border-top: 1px solid var(--border); margin: 8px 0; }
+
+/* ─────────────────────────────────────────────
+   SERVICE SCREENSHOT
+───────────────────────────────────────────── */
+.srv-screenshot {
+  width: 100%;
+  border-radius: var(--r);
+  display: block;
+  border: 1px solid var(--border);
+  max-height: 400px;
+  object-fit: contain;
+  background: #090d16;
+}
+
+/* ─────────────────────────────────────────────
+   TOASTS
+───────────────────────────────────────────── */
+#toasts {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: var(--r);
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 320px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  animation: toast-in .2s ease;
+}
+
+@keyframes toast-in { from { transform: translateX(30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+.toast-ok   { background: var(--green); color: #001a0f; }
+.toast-err  { background: var(--red); color: #fff; }
+.toast-info { background: var(--blue); color: #fff; }
+.toast-warn { background: var(--amber); color: #1a1000; }
+
+/* ─────────────────────────────────────────────
+   EMPTY STATE
+───────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--text3);
+  font-size: 14px;
+  line-height: 2;
+}
+
+.empty-icon { font-size: 32px; margin-bottom: 10px; }
+
+/* ─────────────────────────────────────────────
+   DIVIDER
+───────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+/* ─────────────────────────────────────────────
+   SCHED TABLE INPUTS
+───────────────────────────────────────────── */
+.sched-input {
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+}
+.sched-input:focus { border-color: var(--green); }
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .main { padding: 18px; }
+  .calc-layout, .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .project-fields { grid-template-columns: 1fr 1fr; }
+}
+
+/* ─── DIALOG CONFIRM ─────────────────────────────────────────── */
+.dialog-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.7);
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+  animation: fadeBackdrop .2s ease;
+}
+@keyframes fadeBackdrop { from{opacity:0} to{opacity:1} }
+.dialog-box {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 18px;
+  padding: 36px 40px;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6);
+  animation: slideDialog .25s ease;
+}
+@keyframes slideDialog { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+.dialog-icon { font-size: 48px; margin-bottom: 16px; }
+.dialog-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 10px; }
+.dialog-body { font-size: 15px; color: var(--text2); line-height: 1.6; margin-bottom: 28px; }
+.dialog-btns { display: flex; gap: 12px; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ══ TOPBAR ══ -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-name">SEFAZ<span>RPA</span></div>
+    </div>
+    <div class="topbar-center">
+      <div class="status-pill">
+        <div class="status-dot" id="g-dot"></div>
+        <span id="g-status">IDLE</span>
+      </div>
+    </div>
+    <div class="top-clock" id="top-clock">--:--:--</div>
+  </header>
+
+  <!-- ══ SIDEBAR ══ -->
+  <nav class="sidebar">
+    <div class="nav-group-label">Fluxo</div>
+    <button class="nav-btn active" onclick="nav('setup')" id="nb-setup">
+      <span class="nav-icon">⚙️</span> Configurar
+    </button>
+    <button class="nav-btn" onclick="nav('calc')" id="nb-calc">
+      <span class="nav-icon">⏱</span> Calculadora
+    </button>
+    <button class="nav-btn" onclick="nav('calclog')" id="nb-calclog">
+      <span class="nav-icon">📊</span> Calcular Log
+    </button>
+    <button class="nav-btn" onclick="nav('agenda')" id="nb-agenda">
+      <span class="nav-icon">📅</span> Agenda / Rateio
+    </button>
+
+    <button class="nav-btn" onclick="nav('preview-ap')" id="nb-preview-ap">
+      <span class="nav-icon">📋</span> Preview Apontamentos
+    </button>
+    <button class="nav-btn" onclick="nav('execute')" id="nb-execute">
+      <span class="nav-icon">▶</span> Executar RPA
+    </button>
+
+    <div class="nav-group-label">Service Datainfo</div>
+    <button class="nav-btn" onclick="nav('service')" id="nb-service">
+      <span class="nav-icon">🔍</span> Consultar Realizado
+    </button>
+    <button class="nav-btn" onclick="nav('lancar')" id="nb-lancar">
+      <span class="nav-icon">📝</span> Lançar no Service
+    </button>
+
+    <button class="nav-btn" onclick="nav('portalrh')" id="nb-portalrh">
+      <span class="nav-icon">🕒</span> Acerto do Ponto
+    </button>
+    <div class="nav-spacer"></div>
+    <div class="nav-group-label">Info</div>
+    <button class="nav-btn" onclick="nav('help')" id="nb-help">
+      <span class="nav-icon">❓</span> Ajuda
+    </button>
+  </nav>
+
+  <!-- ══ MAIN ══ -->
+  <main class="main">
+
+    <!-- ════════ CONFIGURAR ════════ -->
+    <div class="panel active" id="panel-setup">
+      <div class="page-hd">
+        <div class="page-title">Configuração</div>
+        <div class="page-sub">Credenciais, projetos, atividades e datas de execução</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Credenciais ADFS — Portal Jexperts (SEFAZ)</div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Usuário</label>
+            <input type="email" id="u-user" placeholder="usuario@sefaz.pe.gov.br"/>
+          </div>
+          <div class="field">
+            <label>Senha</label>
+            <input type="password" id="u-pass" placeholder="••••••••"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Credenciais Service — Datainfo</div>
+        <div class="alert alert-info">💡 Usado para consultar o realizado já lançado e para lançar diretamente no portal Service.</div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Usuário Service</label>
+            <input type="text" id="u-suser" placeholder="data54698"/>
+          </div>
+          <div class="field">
+            <label>Senha Service</label>
+            <input type="password" id="u-spass" placeholder="••••••••"/>
+          </div>
+          <div class="field">
+            <label>Caminho do Chrome (opcional)</label>
+            <input type="text" id="u-chrome" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Projetos a Apontar</div>
+        <div class="mode-tabs">
+          <button class="mode-tab active" id="tab-dur" onclick="setMode('duracao')">Duração Fixa</button>
+          <button class="mode-tab" id="tab-tr" onclick="setMode('timerange')">Hora Início / Fim</button>
+        </div>
+        <div id="proj-list" class="project-list">
+          <div class="empty-state">
+            <div class="empty-icon">📁</div>
+            Adicione ao menos um projeto abaixo
+          </div>
+        </div>
+        <div class="add-project-row">
+          <div style="flex:1">
+            <div class="field" style="margin-bottom:0">
+              <label>Selecionar Projeto</label>
+              <select id="sel-proj"><option value="">— selecione —</option></select>
+            </div>
+          </div>
+          <button class="btn btn-ghost" onclick="addProj()" style="align-self:flex-end">+ Adicionar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Configuração de Datas</div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Fonte das Datas</label>
+            <select id="sel-ds" onchange="updDateUI()">
+              <option value="daily">Hoje (daily)</option>
+              <option value="range" selected>Intervalo (range)</option>
+              <option value="list">Lista manual</option>
+            </select>
+          </div>
+          <div class="field" id="f-start">
+            <label>Data Início</label>
+            <input type="text" id="u-start" placeholder="dd/mm/aaaa"/>
+          </div>
+          <div class="field" id="f-end">
+            <label>Data Fim</label>
+            <input type="text" id="u-end" placeholder="dd/mm/aaaa ou auto"/>
+          </div>
+        </div>
+        <div class="field" id="f-list" style="display:none">
+          <label>Datas (separadas por vírgula)</label>
+          <input type="text" id="u-dlist" placeholder="25/03/2026,26/03/2026"/>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-wrap"><input type="checkbox" id="chk-wd" checked/><span class="toggle-slider"></span></label>
+          <span class="toggle-label">Apenas dias úteis (seg–sex)</span>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Excluir Datas (opcional)</label>
+            <input type="text" id="u-excl" placeholder="01/01/2026,07/09/2026"/>
+          </div>
+          <div class="field">
+            <label>Fuso Horário</label>
+            <input type="text" id="u-tz" value="America/Recife"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Execução</div>
+        <div class="toggle-row">
+          <label class="toggle-wrap"><input type="checkbox" id="chk-dry"/><span class="toggle-slider"></span></label>
+          <span class="toggle-label">DRY RUN — simula sem salvar</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveNext()">Salvar e Continuar →</button>
+        <button class="btn btn-ghost" onclick="saveConfig()">💾 Salvar no Servidor</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadConfig()">📂 Carregar Salvo</button>
+      </div>
+    </div>
+
+    <!-- ════════ CALCULADORA ════════ -->
+    <div class="panel" id="panel-calc">
+      <div class="page-hd">
+        <div class="page-title">Calculadora de Horas</div>
+        <div class="page-sub">Meta do dia, saída sugerida e progresso em tempo real</div>
+      </div>
+
+      <div class="calc-layout">
+        <!-- Coluna Esquerda: Inputs -->
+        <div>
+          <div class="card">
+            <div class="card-title">Dados do Mês</div>
+            <div class="grid-2">
+              <div class="field">
+                <label>Horas Já Apontadas</label>
+                <input id="c-ap" type="number" step="0.01" placeholder="161.18" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>Total Esperado no Mês</label>
+                <input id="c-esp" type="number" step="0.01" placeholder="168" oninput="cCalc()"/>
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="field">
+                <label>Mês de Referência</label>
+                <input id="c-mes" type="month" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>Banco de Horas</label>
+                <input id="c-banco" type="number" step="0.01" placeholder="0" value="0" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>Padrão por Dia</label>
+                <select id="c-hd" onchange="cCalc()">
+                  <option value="8" selected>8 horas</option>
+                  <option value="9">9 horas</option>
+                  <option value="7">7 horas</option>
+                  <option value="6">6 horas</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Pontos de Hoje</div>
+            <div class="big-clock" id="big-clock">--:--:--</div>
+            <div class="grid-4">
+              <div class="field">
+                <label>🟢 Entrada</label>
+                <input id="c-ent" type="time" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>🍽 Saída Almoço</label>
+                <input id="c-salm" type="time" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>🔄 Volta Almoço</label>
+                <input id="c-valm" type="time" oninput="cCalc()"/>
+              </div>
+              <div class="field">
+                <label>🔴 Saída</label>
+                <input id="c-sai" type="time" oninput="cCalc()"/>
+              </div>
+            </div>
+            <div class="btn-row" style="margin-top:10px">
+              <button class="btn btn-ghost btn-sm" onclick="setNow('c-ent')">🟢 Entrada Agora</button>
+              <button class="btn btn-ghost btn-sm" onclick="setNow('c-sai')">🔴 Saída Agora</button>
+              <button class="btn btn-primary btn-sm" onclick="cCalc()">Calcular</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coluna Direita: Resultados -->
+        <div>
+          <div class="card">
+            <div class="card-title">Resultado em Tempo Real</div>
+            <div class="metrics-grid">
+              <div class="metric-row"><span class="metric-label">Trabalhado hoje</span><span class="metric-value green" id="r-hj">--</span></div>
+              <div class="metric-row"><span class="metric-label">Meta de hoje</span><span class="metric-value" id="r-mt">--</span></div>
+              <div class="metric-row"><span class="metric-label">Restam hoje</span><span class="metric-value amber" id="r-rs">--</span></div>
+              <div class="metric-row"><span class="metric-label">Saída sugerida</span><span class="metric-value green" id="r-ss">--</span></div>
+              <div class="metric-row"><span class="metric-label">Dias restantes no mês</span><span class="metric-value blue" id="r-dr">--</span></div>
+              <div class="metric-row"><span class="metric-label">Horas/dia para zerar</span><span class="metric-value amber" id="r-hz">--</span></div>
+              <div class="metric-row"><span class="metric-label">Saldo do mês</span><span class="metric-value" id="r-sl">--</span></div>
+            </div>
+            <div class="progress-bar" style="margin-top:16px">
+              <div class="progress-fill" id="c-fill" style="width:0%"></div>
+              <div class="progress-label" id="c-pct">0%</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Registro de Pontos</div>
+            <div class="pontos-display" id="pontos-box">
+              <div style="color:var(--text3)">Preencha os horários de entrada para ver o resumo...</div>
+            </div>
+            <div class="btn-row" style="margin-top:12px">
+              <button class="btn btn-ghost btn-sm" onclick="copyPontos()">Copiar Resumo</button>
+              <button class="btn btn-blue btn-sm" onclick="nav('calclog')">↗ Ir para Calc Log</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ CALC LOG ════════ -->
+    <div class="panel" id="panel-calclog">
+      <div class="page-hd">
+        <div class="page-title">Calcular Log de Horas</div>
+        <div class="page-sub">Cole o texto bruto do portal de ponto → calcula o saldo → gera o schedule.csv</div>
+      </div>
+
+      <div class="card" style="border-color:rgba(255,171,0,.25);background:var(--surface)">
+        <div class="card-title">📌 Cola Aqui — Texto Bruto do Portal de Ponto</div>
+        <div class="alert alert-info" style="margin-bottom:12px">
+          💡 Cole o texto copiado do portal de ponto (pode ser qualquer formato que contenha "Data:" e "Horas Trabalhadas no Dia:"). O sistema extrai automaticamente.
+        </div>
+        <div class="field">
+          <label>Texto bruto (cole aqui)</label>
+          <textarea id="inp-rawlog" rows="9" style="font-size:13px;line-height:1.7" placeholder="Data: 29/01/2026, Horas Trabalhadas no Dia: 08:02&#10;Data: 28/01/2026, Horas Trabalhadas no Dia: 07:55&#10;&#10;— Cole qualquer texto que contenha esse padrão —&#10;Pode conter outros dados, o sistema ignora o que não reconhece."></textarea>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Hora de Início (base para cálculo)</label>
+            <input type="text" id="log-bs" value="15:00" placeholder="15:00"/>
+          </div>
+          <div class="field">
+            <label>Horas Já Apontadas (fixo por dia)</label>
+            <input type="text" id="log-fx" value="00:00" placeholder="00:00"/>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doCalcLog()">Calcular Saldo</button>
+          <button class="btn btn-ghost" onclick="clearLog()">Limpar</button>
+        </div>
+      </div>
+
+      <div id="log-result" style="display:none">
+        <div class="stats-row" id="log-stats"></div>
+        <div class="card">
+          <div class="card-title">Resultado</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Data</th><th>Trabalhado</th><th>Apontado</th><th>Saldo</th><th>Início</th><th>Fim</th></tr>
+              </thead>
+              <tbody id="log-tbody"></tbody>
+            </table>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-blue btn-sm" onclick="sendLogToAgenda()">↗ Enviar para Agenda</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyLogCsv()">Copiar CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="dlLogCsv()">Baixar CSV</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ AGENDA ════════ -->
+    <div class="panel" id="panel-agenda">
+      <div class="page-hd">
+        <div class="page-title">Agenda & Rateio</div>
+        <div class="page-sub">Defina horários por dia — rateio automático ou edição manual</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Rateio Proporcional</div>
+        <div class="alert alert-info">💡 Informe o total de horas e os projetos serão distribuídos proporcionalmente. A pausa de almoço (12h–13h) é aplicada automaticamente nos blocos de hora início/fim quando o total é maior que as horas da manhã.</div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Total de Horas do Dia</label>
+            <input type="text" id="r-tot" value="08:00" placeholder="08:00"/>
+          </div>
+          <div class="field">
+            <label>Hora de Início (para timerange, opcional)</label>
+            <input type="text" id="r-si" placeholder="08:00"/>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doRateio()">Calcular Rateio</button>
+        </div>
+        <div id="rateio-result" style="display:none;margin-top:18px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Linhas do schedule.csv</div>
+        <div class="alert alert-info" id="agenda-info">Sem dados. Calcule o log, use o rateio ou adicione manualmente.</div>
+        <div id="agenda-table-wrap" style="display:none">
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)">
+            <table style="width:100%;border-collapse:collapse;min-width:460px">
+              <thead>
+                <tr>
+                  <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap">Data</th>
+                  <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap">Duração</th>
+                  <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap">Início</th>
+                  <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap">Fim</th>
+                  <th style="padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);width:40px"></th>
+                </tr>
+              </thead>
+              <tbody id="agenda-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="addAgendaRow()">+ Linha Manual</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearAgenda()">🗑 Limpar</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyAgendaCsv()">Copiar CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="dlAgendaCsv()">Baixar schedule.csv</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ PREVIEW ════════ -->
+    <div class="panel" id="panel-preview">
+      <div class="page-hd">
+        <div class="page-title">Preview de Configuração</div>
+        <div class="page-sub">Revise o .env e schedule.csv que serão gravados</div>
+      </div>
+      <div class="card">
+        <div class="card-title">.env</div>
+        <div class="btn-row" style="margin-bottom:14px;margin-top:0">
+          <button class="btn btn-ghost btn-sm" onclick="loadPreview()">🔄 Atualizar</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyEnv()">Copiar .env</button>
+        </div>
+        <pre class="codeblock" id="env-prev"># Clique em "Atualizar" para gerar o preview</pre>
+      </div>
+      <div class="card" id="csv-preview-card" style="display:none">
+        <div class="card-title">schedule.csv</div>
+        <pre class="codeblock" id="csv-prev"></pre>
+      </div>
+    </div>
+
+    <!-- ════════ PREVIEW APONTAMENTOS ════════ -->
+    <div class="panel" id="panel-preview-ap">
+      <div class="page-hd">
+        <div class="page-title">Preview dos Apontamentos</div>
+        <div class="page-sub">Revise o que será apontado antes de executar. Edite se necessário.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Rateio por Dia × Projeto</div>
+        <div class="btn-row" style="margin-bottom:14px;margin-top:0">
+          <button class="btn btn-primary btn-sm" onclick="loadPreviewAp()">🔄 Gerar Preview</button>
+          <button class="btn btn-ghost btn-sm" onclick="nav('execute')">▶ Executar RPA</button>
+        </div>
+        <div id="preview-ap-body">
+          <div class="empty-state"><div class="empty-icon">📋</div>Clique em "Gerar Preview" para ver os apontamentos calculados.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ EXECUTE ════════ -->
+    <div class="panel" id="panel-execute">
+      <div class="page-hd">
+        <div class="page-title">Executar RPA — Jexperts</div>
+        <div class="page-sub">Automação via Playwright com visualização ao vivo</div>
+      </div>
+
+      <!-- VIEWER -->
+      <div class="viewer-card">
+        <div class="viewer-bar">
+          <div class="viewer-dots">
+            <span class="vd vd-r"></span>
+            <span class="vd vd-y"></span>
+            <span class="vd vd-g"></span>
+          </div>
+          <div class="viewer-url" id="v-url">aguardando execução...</div>
+          <span id="v-ts" style="color:var(--text3);font-size:11px;font-family:var(--mono)"></span>
+        </div>
+        <div class="viewer-body">
+          <img id="ssfeed" alt="screenshot ao vivo"/>
+          <div class="viewer-idle" id="v-idle">
+            <div class="viewer-idle-icon">🤖</div>
+            O Chrome aparece aqui durante a automação<br>
+            <span style="font-size:13px;color:var(--text3)">Screenshots em tempo real a cada ~2 segundos</span>
+          </div>
+          <div class="viewer-overlay" id="v-overlay" style="display:none">
+            <div class="spinner"></div>
+            <div class="viewer-action" id="v-action">Iniciando...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEPS -->
+      <div class="card">
+        <div class="card-title">Etapas da Automação</div>
+        <div class="steps">
+          <div class="step" id="step-0">Login ADFS</div>
+          <div class="step" id="step-1">Formulário</div>
+          <div class="step" id="step-2">Projeto</div>
+          <div class="step" id="step-3">Atividade</div>
+          <div class="step" id="step-4">Data</div>
+          <div class="step" id="step-5">Duração</div>
+          <div class="step" id="step-6">Comentário</div>
+          <div class="step" id="step-7">✅ Salvo</div>
+        </div>
+      </div>
+
+      <!-- CONTROLS -->
+      <div class="card">
+        <div class="card-title">Controle</div>
+        <div class="toggle-row">
+          <label class="toggle-wrap"><input type="checkbox" id="run-dry"/><span class="toggle-slider"></span></label>
+          <span class="toggle-label">DRY RUN — simula sem salvar</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-run" onclick="doRun()">▶ Iniciar Apontamentos</button>
+          <button class="btn btn-danger" id="btn-cancel" onclick="doCancel()" disabled>⛔ Cancelar</button>
+        </div>
+      </div>
+
+      <!-- LOG -->
+      <div class="card">
+        <div class="card-title">Log em Tempo Real</div>
+        <div class="log-box" id="run-log">Aguardando execução...</div>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('run-log').innerHTML=''">Limpar</button>
+          <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('run-log').innerText).then(()=>toast('Copiado!','ok'))">Copiar Log</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ SERVICE CONSULTAR ════════ -->
+    <div class="panel" id="panel-service">
+      <div class="page-hd">
+        <div class="page-title">Consultar Realizado — Service</div>
+        <div class="page-sub">Extrai automaticamente o que foi lançado no portal Datainfo</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Parâmetros de Consulta</div>
+        <div class="alert alert-info">💡 Faz login automático no Service com suas credenciais e extrai os lançamentos do período informado.</div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Data Início</label>
+            <input type="text" id="srv-di" placeholder="01/03/2026"/>
+          </div>
+          <div class="field">
+            <label>Data Fim</label>
+            <input type="text" id="srv-df" placeholder="31/03/2026"/>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-fetch" onclick="fetchRealizado()">🔗 Consultar Realizado</button>
+        </div>
+      </div>
+
+      <div id="srv-result" style="display:none">
+        <div class="stats-row" id="srv-stats"></div>
+        <div class="card">
+          <div class="card-title">Lançamentos Encontrados</div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table><thead><tr id="srv-thead"></tr></thead><tbody id="srv-tbody"></tbody></table>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-ghost btn-sm" onclick="copySrvCsv()">Copiar CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="dlSrvCsv()">Baixar CSV</button>
+          </div>
+        </div>
+        <div class="card" id="srv-ss-card" style="display:none">
+          <div class="card-title">Screenshot do Portal</div>
+          <img id="srv-ss" class="srv-screenshot" alt=""/>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ LANÇAR NO SERVICE ════════ -->
+    <div class="panel" id="panel-lancar">
+      <div class="page-hd">
+        <div class="page-title">Lançar no Service — Datainfo</div>
+        <div class="page-sub">Automação direta em service.datainfo.inf.br com visualização ao vivo</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Dados do Lançamento</div>
+        <div class="alert alert-warn">⚠️ O Chrome abrirá visualmente para você acompanhar. Confirme os dados antes de clicar em Lançar.</div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Data</label>
+            <input type="text" id="lan-dt" placeholder="dd/mm/aaaa"/>
+          </div>
+          <div class="field">
+            <label>Hora Início</label>
+            <input type="text" id="lan-hi" value="08:00" placeholder="08:00"/>
+          </div>
+          <div class="field">
+            <label>Hora Término</label>
+            <input type="text" id="lan-hf" value="12:00" placeholder="12:00"/>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Projeto</label>
+            <select id="lan-pj">
+              <option value="PJ11734">PJ11734 — SEFAZ PE 2024/2025</option>
+              <option value="PJ12442">PJ12442 — GESTÃO PÚBLICA 2026</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Nº da Atividade (seq)</label>
+            <input type="text" id="lan-at" value="397703"/>
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Tipo Esforço</label>
+            <select id="lan-te">
+              <option value="1" selected>Normal</option>
+              <option value="2">A Compensar</option>
+              <option value="3">Extra</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Tipo Atividade</label>
+            <select id="lan-ta">
+              <option value="1" selected>FAT-RAT</option>
+              <option value="8">FAT-Projeto</option>
+              <option value="6">INT-Hora Normal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Conclusão (%)</label>
+            <input type="number" id="lan-cl" value="99" min="0" max="100"/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Descrição da Atividade</label>
+          <textarea id="lan-desc" rows="3" placeholder="Descreva a atividade realizada..."></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-lan" onclick="doLancar()">📝 Lançar no Service</button>
+        </div>
+      </div>
+
+      <div id="lan-result" style="display:none">
+        <div class="card">
+          <div class="card-title">Resultado</div>
+          <div id="lan-msg"></div>
+          <img id="lan-ss" class="srv-screenshot" style="margin-top:16px;display:none" alt=""/>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ PORTAL RH ════════ -->
+    <div class="panel" id="panel-portalrh">
+      <div class="page-hd">
+        <div class="page-title">Acerto do Ponto — Portal RH</div>
+        <div class="page-sub">Automação do portalrh.datainfo.inf.br · Ajuste de ponto por esquecimento</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Credenciais Portal RH</div>
+        <div class="grid-2">
+          <div class="field"><label>Usuário</label><input type="text" id="rh-user" placeholder="DATA54698"/></div>
+          <div class="field"><label>Senha</label><input type="password" id="rh-pass" placeholder="••••••••"/></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Horários a Registrar</div>
+        <div class="alert alert-info">💡 Informe os horários separados por vírgula. O robô fará uma solicitação completa para cada horário.</div>
+        <div class="field">
+          <label>Horários (HH:MM, separados por vírgula)</label>
+          <input type="text" id="rh-horas" value="08:00,12:00,13:00,17:00" placeholder="08:00,12:00,13:00,17:00"/>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Motivo (value)</label>
+            <input type="text" id="rh-motivo-val" value="0004" placeholder="0004"/>
+          </div>
+          <div class="field">
+            <label>Motivo (texto exato da tela)</label>
+            <input type="text" id="rh-motivo-txt" value="Esquecimento de Registro"/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Detalhamento</label>
+          <textarea id="rh-detalhe" rows="2">Solicito ajuste de ponto por esquecimento de registro.</textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Configuração de Datas</div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Fonte das Datas</label>
+            <select id="rh-ds" onchange="updRhDateUI()">
+              <option value="daily" selected>Hoje</option>
+              <option value="range">Intervalo</option>
+              <option value="list">Lista manual</option>
+            </select>
+          </div>
+          <div class="field" id="rh-f-start" style="display:none"><label>Data Início</label><input type="text" id="rh-start" placeholder="dd/mm/aaaa"/></div>
+          <div class="field" id="rh-f-end"   style="display:none"><label>Data Fim</label><input type="text" id="rh-end" placeholder="dd/mm/aaaa ou auto"/></div>
+        </div>
+        <div class="field" id="rh-f-list" style="display:none"><label>Datas (vírgula)</label><input type="text" id="rh-dlist" placeholder="25/03/2026,26/03/2026"/></div>
+        <div class="toggle-row">
+          <label class="toggle-wrap"><input type="checkbox" id="rh-wd" checked/><span class="toggle-slider"></span></label>
+          <span class="toggle-label">Apenas dias úteis (seg–sex)</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Execução</div>
+        <div class="toggle-row">
+          <label class="toggle-wrap"><input type="checkbox" id="rh-dry" checked/><span class="toggle-slider"></span></label>
+          <span class="toggle-label">DRY RUN — preenche mas não envia</span>
+        </div>
+      </div>
+
+      <!-- VIEWER -->
+      <div class="viewer-card">
+        <div class="viewer-bar">
+          <div class="viewer-dots"><span class="vd vd-r"></span><span class="vd vd-y"></span><span class="vd vd-g"></span></div>
+          <div class="viewer-url" id="rh-url">aguardando...</div>
+          <span id="rh-ts" style="color:var(--text3);font-size:11px;font-family:var(--mono)"></span>
+        </div>
+        <div class="viewer-body">
+          <img id="rh-ssfeed" alt="screenshot portal rh" style="width:100%;height:100%;object-fit:contain;display:none;position:absolute;inset:0"/>
+          <div class="viewer-idle" id="rh-idle">
+            <div class="viewer-idle-icon">🏢</div>
+            Portal RH aparece aqui durante a automação
+          </div>
+          <div class="viewer-overlay" id="rh-overlay" style="display:none">
+            <div class="spinner"></div>
+            <div class="viewer-action" id="rh-action">Iniciando...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Etapas</div>
+        <div class="steps">
+          <div class="step" id="rh-step-0">Login Portal RH</div>
+          <div class="step" id="rh-step-1">Espelho do Ponto</div>
+          <div class="step" id="rh-step-2">Acerto do Ponto</div>
+          <div class="step" id="rh-step-3">Data</div>
+          <div class="step" id="rh-step-4">Hora</div>
+          <div class="step" id="rh-step-5">Motivo</div>
+          <div class="step" id="rh-step-6">Detalhamento</div>
+          <div class="step" id="rh-step-7">✅ Enviado</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Controle</div>
+        <div class="log-box" id="rh-log" style="height:280px">Aguardando...</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="rh-btn-run" onclick="doRhRun()">▶ Iniciar Acerto do Ponto</button>
+          <button class="btn btn-danger"  id="rh-btn-cancel" onclick="doRhCancel()" disabled>⛔ Cancelar</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('rh-log').innerHTML=''">Limpar Log</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ HELP ════════ -->
+    <div class="panel" id="panel-help">
+      <div class="page-hd">
+        <div class="page-title">Ajuda & Fluxo de Uso</div>
+        <div class="page-sub">Como usar o painel integrado passo a passo</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Fluxo Recomendado</div>
+        <ol style="padding-left:22px;line-height:2.6;font-size:15px;color:var(--text2)">
+          <li><strong style="color:var(--text)">Configurar</strong> — preencha credenciais (Jexperts + Service), projetos com atividade e duração, datas</li>
+          <li><strong style="color:var(--text)">Calculadora</strong> — informe entrada/almoço/saída → veja meta do dia, saída sugerida, progresso</li>
+          <li><strong style="color:var(--text)">Consultar Realizado</strong> — extrai automaticamente do Service o que já foi lançado</li>
+          <li><strong style="color:var(--text)">Calc Log</strong> — cole o texto do portal de ponto → calcula saldo (trabalhado − 6h)</li>
+          <li><strong style="color:var(--text)">Agenda / Rateio</strong> — distribui horas entre projetos proporcionalmente ou edita linha a linha</li>
+          <li><strong style="color:var(--text)">Preview</strong> — revise o .env e schedule.csv antes de executar</li>
+          <li><strong style="color:var(--text)">Executar RPA</strong> — lança no Jexperts com Chrome ao vivo e log em tempo real</li>
+          <li><strong style="color:var(--text)">Lançar no Service</strong> — lança diretamente no portal Datainfo</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="card-title">Formato do Log Bruto (portal de ponto)</div>
+        <pre class="codeblock">Data: 29/01/2026, Horas Trabalhadas no Dia: 08:02
+Data: 28/01/2026, Horas Trabalhadas no Dia: 07:55
+Data: 27/01/2026, Horas Trabalhadas no Dia: 08:30</pre>
+        <p style="margin-top:12px;font-size:14px;color:var(--text2)">Copie do portal de ponto e cole na aba <strong style="color:var(--text)">Calc Log</strong>. O sistema desconta 6h fixo e calcula o saldo de cada dia.</p>
+      </div>
+      <div class="card">
+        <div class="card-title">Dicas Importantes</div>
+        <ul style="padding-left:22px;line-height:2.4;font-size:14px;color:var(--text2)">
+          <li>Sempre execute com <strong style="color:var(--amber)">DRY RUN ativado</strong> na primeira vez</li>
+          <li>O schedule.csv tem prioridade sobre a duração fixa do .env</li>
+          <li>O Chrome Path é necessário somente se o Playwright não encontrar o Chrome instalado</li>
+          <li>As credenciais do Service são <code style="color:var(--text)">data54698</code> + senha</li>
+          <li>O viewer mostra screenshots do Chrome a cada ~2 segundos durante a execução</li>
+        </ul>
+      </div>
+    </div>
+
+  </main><!-- /main -->
+</div><!-- /app -->
+
+<div id="toasts"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════
+const G = {
+  projects:   [],
+  mode:       'duracao',
+  agendaRows: [],
+  // Linhas realmente usadas na execução do RPA, geradas no Preview de Apontamentos.
+  // Mantém a Agenda original intacta e evita executar algo diferente do preview.
+  previewApRows: [],
+  logRows:    [],
+  srvRows:    [],
+  catalog:    { projects: [], activityTypes: [], defaultComentario: '' },
+  rpaStatus:  'idle',
+  pollInt:    null,
+  ssInt:      null,
+};
+
+// ═══════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════
+async function boot() {
+  try {
+    const r = await fetch('/api/catalog');
+    G.catalog = await r.json();
+    buildProjSelect();
+  } catch(e) {
+    toast('Servidor offline. Execute: node server.js', 'err');
+  }
+
+  initDates();
+  updDateUI();
+  startClock();
+  pollGlobalStatus();
+  await loadConfig();
+}
+
+function startClock() {
+  const tick = () => {
+    const n = new Date();
+    const s = [n.getHours(), n.getMinutes(), n.getSeconds()].map(v => String(v).padStart(2,'0')).join(':');
+    document.getElementById('top-clock').textContent = s;
+    document.getElementById('big-clock').textContent = s;
+    if (document.getElementById('c-ent').value) cCalc();
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
+function initDates() {
+  const n = new Date(), f = v => String(v).padStart(2,'0');
+  document.getElementById('u-start').value  = `01/${f(n.getMonth()+1)}/${n.getFullYear()}`;
+  document.getElementById('u-end').value    = `${f(n.getDate())}/${f(n.getMonth()+1)}/${n.getFullYear()}`;
+  document.getElementById('c-mes').value    = `${n.getFullYear()}-${f(n.getMonth()+1)}`;
+  document.getElementById('srv-di').value   = `01/${f(n.getMonth()+1)}/${n.getFullYear()}`;
+  document.getElementById('srv-df').value   = `${f(n.getDate())}/${f(n.getMonth()+1)}/${n.getFullYear()}`;
+  document.getElementById('lan-dt').value   = `${f(n.getDate())}/${f(n.getMonth()+1)}/${n.getFullYear()}`;
+}
+
+// ═══════════════════════════════════════════════
+// NAVEGAÇÃO
+// ═══════════════════════════════════════════════
+function nav(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + id)?.classList.add('active');
+  document.getElementById('nb-' + id)?.classList.add('active');
+  if (id === 'preview') loadPreview();
+}
+
+// ═══════════════════════════════════════════════
+// MODO HORA
+// ═══════════════════════════════════════════════
+function setMode(m) {
+  G.mode = m;
+  document.getElementById('tab-dur').classList.toggle('active', m === 'duracao');
+  document.getElementById('tab-tr').classList.toggle('active',  m === 'timerange');
+  renderProjects();
+}
+
+// ═══════════════════════════════════════════════
+// PROJETOS
+// ═══════════════════════════════════════════════
+function buildProjSelect() {
+  const sel = document.getElementById('sel-proj');
+  sel.innerHTML = '<option value="">— selecione —</option>';
+  for (const p of G.catalog.projects) {
+    const o = document.createElement('option');
+    o.value = p.value;
+    o.textContent = `${p.value} — ${p.label}`;
+    sel.appendChild(o);
+  }
+}
+
+function addProj() {
+  const sel = document.getElementById('sel-proj');
+  const v   = sel.value;
+  if (!v) return toast('Selecione um projeto', 'err');
+  if (G.projects.find(p => p.value === v)) return toast('Projeto já adicionado', 'err');
+  const meta = G.catalog.projects.find(p => p.value === v);
+  G.projects.push({
+    value: v, label: meta?.label || v,
+    activityValue: '35',
+    comentario:    G.catalog.defaultComentario,
+    duracao:       '02:00',
+    horaInicio:    '08:00',
+    horaFim:       '10:00',
+  });
+  sel.value = '';
+  renderProjects();
+}
+
+function removeProj(v) {
+  G.projects = G.projects.filter(p => p.value !== v);
+  renderProjects();
+}
+
+function updProj(v, field, val) {
+  const p = G.projects.find(p => p.value === v);
+  if (p) p[field] = val;
+}
+
+function renderProjects() {
+  const c = document.getElementById('proj-list');
+  if (!G.projects.length) {
+    c.innerHTML = '<div class="empty-state"><div class="empty-icon">📁</div>Adicione ao menos um projeto abaixo</div>';
+    return;
+  }
+  c.innerHTML = '';
+  for (const p of G.projects) {
+    const actOpts = G.catalog.activityTypes
+      .map(a => `<option value="${a.value}"${a.value === p.activityValue ? ' selected' : ''}>${a.label}</option>`)
+      .join('');
+
+    const hrsFields = G.mode === 'duracao'
+      ? `<div class="field" style="margin-bottom:0"><label>Duração</label><input type="text" value="${p.duracao}" oninput="updProj('${p.value}','duracao',this.value)" placeholder="02:00"/></div>`
+      : `<div class="field" style="margin-bottom:0"><label>Início</label><input type="text" value="${p.horaInicio}" oninput="updProj('${p.value}','horaInicio',this.value)" placeholder="08:00"/></div>
+         <div class="field" style="margin-bottom:0"><label>Fim</label><input type="text" value="${p.horaFim}" oninput="updProj('${p.value}','horaFim',this.value)" placeholder="10:00"/></div>`;
+
+    const d = document.createElement('div');
+    d.className = 'project-item';
+    d.innerHTML = `
+      <div class="project-item-top">
+        <span class="project-badge">#${p.value}</span>
+        <span class="project-name">${p.label}</span>
+        <button class="btn-remove" onclick="removeProj('${p.value}')">✕</button>
+      </div>
+      <div class="project-fields">
+        <div class="field" style="margin-bottom:0">
+          <label>Tipo de Atividade</label>
+          <select onchange="updProj('${p.value}','activityValue',this.value)">${actOpts}</select>
+        </div>
+        ${hrsFields}
+      </div>
+      <div class="field" style="margin-top:12px;margin-bottom:0">
+        <label>Comentário</label>
+        <textarea rows="2" oninput="updProj('${p.value}','comentario',this.value)">${p.comentario}</textarea>
+      </div>`;
+    c.appendChild(d);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// DATE UI
+// ═══════════════════════════════════════════════
+function updDateUI() {
+  const s = document.getElementById('sel-ds').value;
+  const rng = s === 'range' || s === 'backfill';
+  document.getElementById('f-start').style.display = rng ? '' : 'none';
+  document.getElementById('f-end').style.display   = rng ? '' : 'none';
+  document.getElementById('f-list').style.display  = s === 'list' ? '' : 'none';
+}
+
+// ═══════════════════════════════════════════════
+// BUILD CONFIG
+// ═══════════════════════════════════════════════
+function buildCfg(dryOverride) {
+  const dry = dryOverride !== undefined ? dryOverride : document.getElementById('chk-dry').checked;
+  const src = document.getElementById('sel-ds').value;
+  const exc = document.getElementById('u-excl').value.trim();
+  return {
+    user:         document.getElementById('u-user').value.trim(),
+    pass:         document.getElementById('u-pass').value.trim(),
+    serviceUser:  document.getElementById('u-suser').value.trim(),
+    servicePass:  document.getElementById('u-spass').value.trim(),
+    chromePath:   document.getElementById('u-chrome').value.trim(),
+    projects:     G.projects,
+    hourMode:     G.mode,
+    useTimeRange: G.mode === 'timerange',
+    dateSource:   src,
+    startDate:    document.getElementById('u-start').value.trim(),
+    endDate:      document.getElementById('u-end').value.trim(),
+    datesList:    document.getElementById('u-dlist').value.split(',').map(s => s.trim()).filter(Boolean),
+    weekdaysOnly: document.getElementById('chk-wd').checked,
+    excludeDates: exc ? exc.split(',').map(s => s.trim()).filter(Boolean) : [],
+    tz:           document.getElementById('u-tz').value.trim() || 'America/Recife',
+    dryRun:       dry,
+    // Prioridade: executar exatamente o que está no Preview de Apontamentos.
+    // Se o preview ainda não foi gerado, cai para a Agenda original.
+    scheduleRows: (G.previewApRows && G.previewApRows.length) ? G.previewApRows : G.agendaRows,
+  };
+}
+
+function saveNext() {
+  if (!document.getElementById('u-user').value.trim()) return toast('Preencha o usuário', 'err');
+  if (!document.getElementById('u-pass').value.trim()) return toast('Preencha a senha', 'err');
+  if (!G.projects.length) return toast('Adicione ao menos um projeto', 'err');
+  toast('Configuração salva!', 'ok');
+  nav('calc');
+}
+
+// ═══════════════════════════════════════════════
+// CALCULADORA
+// ═══════════════════════════════════════════════
+function hm2min(s) {
+  if (!s) return null;
+  const [h, m] = s.split(':').map(Number);
+  return h * 60 + m;
+}
+function min2hm(m) {
+  return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+}
+function min2str(m) {
+  if (m === null || isNaN(m)) return '--';
+  const total = Math.round(m);
+  const a = Math.abs(total), h = Math.floor(a/60), mn = a%60;
+  return `${total < 0 ? '-' : ''}${h}h${mn > 0 ? ' ' + String(mn).padStart(2,'0') + 'm' : ''}`;
+}
+
+function cCalc() {
+  const ent  = document.getElementById('c-ent').value;
+  const salm = document.getElementById('c-salm').value;
+  const valm = document.getElementById('c-valm').value;
+  const sai  = document.getElementById('c-sai').value;
+  const mes  = document.getElementById('c-mes').value;
+  const aph  = parseFloat(document.getElementById('c-ap').value)    || 0;
+  const esph = parseFloat(document.getElementById('c-esp').value)   || 0;
+  const banco= parseFloat(document.getElementById('c-banco').value) || 0;
+
+  let trabM = 0;
+  if (ent) {
+    const em  = hm2min(ent);
+    const now = new Date();
+    const fim = sai ? hm2min(sai) : now.getHours()*60 + now.getMinutes();
+    const ai  = salm ? hm2min(salm) : 12*60;
+    const af  = valm ? hm2min(valm) : 13*60;
+    const almD = Math.max(0, af - ai);
+    trabM = fim - em;
+    if (fim > af)  trabM -= almD;
+    else if (fim > ai) trabM = ai - em;
+    trabM = Math.max(0, trabM);
+  }
+
+  const hoje = new Date();
+  const diasR = mes ? (() => {
+    const [y,m] = mes.split('-').map(Number);
+    return Math.max(0, new Date(y, m, 0).getDate() - hoje.getDate() + 1);
+  })() : 0;
+
+  const hRest  = Math.max(0, esph - aph - banco);
+  const metaH  = diasR > 0 ? hRest / diasR : 0;
+  const restH  = Math.max(0, metaH - trabM/60);
+  const saldo  = (aph + banco + trabM/60) - esph;
+
+  let ss = '--';
+  if (ent) {
+    const em   = hm2min(ent);
+    const almD = (salm && valm) ? Math.max(60, hm2min(valm) - hm2min(salm)) : 60;
+    ss = min2hm(Math.round(em + metaH*60 + almD));
+  }
+
+  const sv = (id, v, cls) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = v;
+    el.className = 'metric-value' + (cls ? ' ' + cls : '');
+  };
+
+  sv('r-hj', min2str(trabM), 'green');
+  sv('r-mt', min2str(metaH * 60));
+  sv('r-rs', min2str(restH * 60), restH > 0 ? 'amber' : 'green');
+  const ssEl = document.getElementById('r-ss');
+  if(ssEl){ ssEl.textContent = ss; ssEl.className = 'metric-value green'; ssEl.style.fontSize='20px'; ssEl.style.fontWeight='700'; }
+  sv('r-dr', diasR, 'blue');
+  sv('r-hz', diasR > 0 ? min2str(hRest/diasR*60) : '--', 'amber');
+  sv('r-sl', min2str(saldo * 60), saldo >= 0 ? 'green' : 'red');
+
+  const pct = metaH > 0 ? Math.min((trabM/60/metaH)*100, 100) : (trabM > 0 ? 100 : 0);
+  const fill = document.getElementById('c-fill');
+  fill.style.width    = pct + '%';
+  fill.className      = 'progress-fill' + (pct >= 100 ? ' over' : '');
+  document.getElementById('c-pct').textContent = pct.toFixed(1) + '%';
+
+  renderPontos(ent, salm, valm, sai, trabM, metaH, ss);
+}
+
+function renderPontos(e, sa, va, s, tm, metaH, ssStr) {
+  const b = document.getElementById('pontos-box');
+  const now = new Date();
+  const nowStr = min2hm(now.getHours()*60 + now.getMinutes());
+  const ln = (lbl, val, cls='') =>
+    `<div class="ponto-line"><span>${lbl}</span><span class="${cls}">${val || '--'}</span></div>`;
+
+  if (!e) {
+    // Sem entrada: mostra sugestão baseada na meta
+    if (metaH > 0 && ssStr !== '--') {
+      b.innerHTML = `
+        <div style="color:var(--text3);margin-bottom:10px;font-size:13px">Nenhum ponto marcado ainda.</div>
+        ${ln('🟢 Entrada sugerida:', '08:00', 'ponto-ok')}
+        ${ln('🍽 Saída Almoço:', '12:00', '')}
+        ${ln('🔄 Volta Almoço:', '13:00', '')}
+        ${ln('🔴 Saída sugerida:', ssStr, 'ponto-ok')}
+        <div class="ponto-sep"></div>
+        <div style="color:var(--amber);font-size:12px">▶ Seguindo essa recomendação você atingirá a meta do dia.</div>
+      `;
+    } else {
+      b.innerHTML = '<div style="color:var(--text3)">Preencha a entrada para calcular...</div>';
+    }
+    return;
+  }
+
+  // Com entrada: mostra situação atual
+  const almSug = !sa && !va ? `<div style="color:var(--text2);font-size:12px;margin:4px 0">💡 Almoço recomendado: 12:00 – 13:00</div>` : '';
+  b.innerHTML = `
+    ${ln('Entrada:', e, 'ponto-ok')}
+    ${sa ? ln('Saída Almoço:', sa) : ''}
+    ${almSug}
+    ${va ? ln('Volta Almoço:', va) : ''}
+    ${s  ? ln('Saída:', s, 'ponto-ok') : ln('Saída (agora):', nowStr, 'ponto-now')}
+    <div class="ponto-sep"></div>
+    ${ln('Total trabalhado:', min2hm(tm), 'ponto-ok')}
+    ${ssStr !== '--' ? `<div style="background:var(--green-dim);border:1px solid rgba(0,214,143,.25);border-radius:6px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span style="color:var(--text2);font-size:13px">🏁 Saída para bater a meta:</span><span style="color:var(--green);font-weight:700;font-size:16px;font-family:var(--mono)">${ssStr}</span></div>` : ''}
+  `;
+}
+
+function setNow(id) {
+  const n = new Date();
+  document.getElementById(id).value = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+  cCalc();
+}
+
+function copyPontos() {
+  navigator.clipboard.writeText(document.getElementById('pontos-box').innerText)
+    .then(() => toast('Resumo copiado!', 'ok'));
+}
+
+// ═══════════════════════════════════════════════
+// CALC LOG
+// ═══════════════════════════════════════════════
+async function doCalcLog() {
+  const raw = document.getElementById('inp-rawlog').value;
+  const bs  = document.getElementById('log-bs').value.trim();
+  const fx  = document.getElementById('log-fx').value.trim();
+  if (!raw.trim()) return toast('Cole o texto do portal primeiro', 'err');
+  try {
+    const r = await fetch('/api/parse-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rawText: raw, baseStart: bs, fixedHours: fx }),
+    });
+    const d = await r.json();
+    if (!r.ok) return toast(d.error || 'Erro ao calcular', 'err');
+    G.logRows = d.rows;
+    renderLogResult(d.rows, fx);
+    document.getElementById('log-result').style.display = '';
+    toast(`${d.rows.length} dias calculados`, 'ok');
+  } catch(e) { toast('Erro de conexão com o servidor', 'err'); }
+}
+
+function renderLogResult(rows, fx) {
+  const tb = document.getElementById('log-tbody');
+  tb.innerHTML = '';
+  let tot = 0;
+  for (const r of rows) {
+    const [h, m] = r.saldo.split(':').map(Number);
+    tot += h*60 + m;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="td-green">${r.data}</td>
+      <td>${r.trabalhado}</td>
+      <td class="td-dim">${fx}</td>
+      <td class="td-amber">${r.saldo}</td>
+      <td>${r.horaInicio}</td>
+      <td>${r.horaFim}</td>
+    `;
+    tb.appendChild(tr);
+  }
+  const th = Math.floor(tot/60), tm = tot%60;
+  const avg = rows.length ? Math.round(tot/rows.length) : 0;
+  document.getElementById('log-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${rows.length}</div><div class="stat-label">Dias</div></div>
+    <div class="stat-card"><div class="stat-value">${th}h ${tm}m</div><div class="stat-label">Total Saldo</div></div>
+    <div class="stat-card"><div class="stat-value">${Math.floor(avg/60)}h ${avg%60}m</div><div class="stat-label">Média / Dia</div></div>
+  `;
+}
+
+function clearLog() {
+  document.getElementById('inp-rawlog').value = '';
+  document.getElementById('log-result').style.display = 'none';
+  G.logRows = [];
+}
+
+function sendLogToAgenda() {
+  if (!G.logRows.length) return toast('Nenhum dado calculado', 'err');
+  G.agendaRows = G.logRows.map(r => ({
+    data: r.data, duracao: r.duracao,
+    horaInicio: r.horaInicio, horaFim: r.horaFim,
+  }));
+  renderAgenda();
+  document.getElementById('agenda-info').textContent = `${G.agendaRows.length} linhas importadas do log.`;
+  toast(`${G.agendaRows.length} linhas enviadas para a Agenda`, 'ok');
+  nav('agenda');
+}
+
+function getLogCsv() {
+  if (!G.logRows.length) return '';
+  const ls = ['data,hora_inicio,hora_fim,duracao'];
+  for (const r of G.logRows) ls.push(`${r.data},${r.horaInicio},${r.horaFim},${r.duracao}`);
+  return ls.join('\n');
+}
+function copyLogCsv() { const t=getLogCsv(); if(!t) return toast('Nenhum dado','err'); navigator.clipboard.writeText(t).then(()=>toast('CSV copiado!','ok')); }
+function dlLogCsv()   { const t=getLogCsv(); if(!t) return toast('Nenhum dado','err'); dlText(t,'saldo_horas.csv'); }
+
+// ═══════════════════════════════════════════════
+// RATEIO
+// ═══════════════════════════════════════════════
+async function doRateio() {
+  if (!G.projects.length) return toast('Configure os projetos primeiro', 'err');
+  const tot = document.getElementById('r-tot').value.trim();
+  const si  = document.getElementById('r-si').value.trim() || null;
+  try {
+    const r = await fetch('/api/distribute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ totalHoras: tot, projectValues: G.projects.map(p => p.value), baseStart: si }),
+    });
+    const d = await r.json();
+    if (!r.ok) return toast(d.error || 'Erro', 'err');
+    renderRateio(d.distribution);
+  } catch(e) { toast('Erro de conexão', 'err'); }
+}
+
+function renderRateio(dist) {
+  const c = document.getElementById('rateio-result');
+  c.style.display = '';
+  let html = `<div class="table-wrap"><table>
+    <thead><tr><th>Projeto</th><th>Duração</th><th>Início</th><th>Fim</th></tr></thead><tbody>`;
+  for (const d of dist) {
+    const lbl = G.catalog.projects.find(p => p.value === d.projectValue)?.label || d.projectValue;
+    html += `<tr>
+      <td class="td-green">${d.projectValue} — ${lbl}</td>
+      <td class="td-amber">${d.duracao}</td>
+      <td>${d.horaInicio || '—'}</td>
+      <td>${d.horaFim || '—'}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>
+    <div class="btn-row">
+      <button class="btn btn-blue btn-sm" onclick='applyRateio(${JSON.stringify(dist)})'>↗ Aplicar aos Projetos</button>
+    </div>`;
+  c.innerHTML = html;
+}
+
+function applyRateio(dist) {
+  for (const d of dist) {
+    const p = G.projects.find(p => p.value === d.projectValue);
+    if (p) {
+      p.duracao = d.duracao;
+      if (d.horaInicio) p.horaInicio = d.horaInicio;
+      if (d.horaFim)    p.horaFim    = d.horaFim;
+    }
+  }
+  renderProjects();
+  toast('Rateio aplicado aos projetos!', 'ok');
+  nav('setup');
+}
+
+// ═══════════════════════════════════════════════
+// AGENDA
+// ═══════════════════════════════════════════════
+function renderAgenda() {
+  const wrap = document.getElementById('agenda-table-wrap');
+  const tb   = document.getElementById('agenda-tbody');
+  tb.innerHTML = '';
+  if (!G.agendaRows.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const TD = 'padding:7px 10px;border-bottom:1px solid var(--border)';
+  for (let i = 0; i < G.agendaRows.length; i++) {
+    const r  = G.agendaRows[i];
+    const tr = document.createElement('tr');
+    const inp = (field, val, ph) =>
+      `<input class="sched-input" type="text" value="${val||''}" placeholder="${ph||''}" oninput="G.agendaRows[${i}]['${field}']=this.value" style="width:100%;min-width:80px"/>`;
+    tr.innerHTML = `
+      <td style="${TD};min-width:105px">${inp('data',r.data,'dd/mm/aaaa')}</td>
+      <td style="${TD};min-width:80px">${inp('duracao',r.duracao,'08:00')}</td>
+      <td style="${TD};min-width:80px">${inp('horaInicio',r.horaInicio,'08:00')}</td>
+      <td style="${TD};min-width:80px">${inp('horaFim',r.horaFim,'17:00')}</td>
+      <td style="${TD};width:38px;text-align:center"><button class="btn-remove" onclick="G.agendaRows.splice(${i},1);renderAgenda()">✕</button></td>
+    `;
+    tb.appendChild(tr);
+  }
+}
+
+function addAgendaRow() {
+  const n = new Date(), f = v => String(v).padStart(2,'0');
+  G.agendaRows.push({ data: `${f(n.getDate())}/${f(n.getMonth()+1)}/${n.getFullYear()}`, duracao:'02:00', horaInicio:'', horaFim:'' });
+  renderAgenda();
+  document.getElementById('agenda-table-wrap').style.display = '';
+}
+
+function clearAgenda() {
+  G.agendaRows = [];
+  renderAgenda();
+  document.getElementById('agenda-info').textContent = 'Agenda limpa.';
+}
+
+function getAgendaCsv() {
+  if (!G.agendaRows.length) return '';
+  const hasTR = G.agendaRows.some(r => r.horaInicio);
+  if (hasTR) {
+    const ls = ['data,hora_inicio,hora_fim,duracao'];
+    for (const r of G.agendaRows) ls.push(`${r.data},${r.horaInicio||''},${r.horaFim||''},${r.duracao||''}`);
+    return ls.join('\n');
+  }
+  const ls = ['data,duracao'];
+  for (const r of G.agendaRows) ls.push(`${r.data},${r.duracao}`);
+  return ls.join('\n');
+}
+
+function copyAgendaCsv() { const t=getAgendaCsv(); if(!t) return toast('Agenda vazia','err'); navigator.clipboard.writeText(t).then(()=>toast('CSV copiado!','ok')); }
+function dlAgendaCsv()   { const t=getAgendaCsv(); if(!t) return toast('Agenda vazia','err'); dlText(t,'schedule.csv'); }
+
+// ═══════════════════════════════════════════════
+// PREVIEW
+// ═══════════════════════════════════════════════
+async function loadPreview() {
+  try {
+    const r = await fetch('/api/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildCfg()),
+    });
+    const d = await r.json();
+    if (!r.ok) return toast(d.error || 'Erro', 'err');
+    document.getElementById('env-prev').textContent = d.envContent || '(vazio)';
+    const cc = document.getElementById('csv-preview-card');
+    if (d.csvContent) {
+      document.getElementById('csv-prev').textContent = d.csvContent;
+      cc.style.display = '';
+    } else {
+      cc.style.display = 'none';
+    }
+  } catch(e) {
+    document.getElementById('env-prev').textContent = 'Erro: ' + e.message;
+  }
+}
+
+function copyEnv() {
+  navigator.clipboard.writeText(document.getElementById('env-prev').textContent)
+    .then(() => toast('.env copiado!', 'ok'));
+}
+
+// ═══════════════════════════════════════════════
+// EXECUTAR RPA
+// ═══════════════════════════════════════════════
+async function doRun() {
+  if (!document.getElementById('u-user').value.trim()) return toast('Configure o usuário', 'err');
+  if (!document.getElementById('u-pass').value.trim()) return toast('Configure a senha',   'err');
+  if (!G.projects.length) return toast('Configure os projetos', 'err');
+
+  // Garante que a execução use a mesma grade do Preview de Apontamentos.
+  // Antes, o preview mostrava dia × projeto, mas o /api/run recebia só data,duracao.
+  if (!G.previewApRows || !G.previewApRows.length) {
+    await loadPreviewAp();
+  }
+  if (!G.previewApRows || !G.previewApRows.length) {
+    return toast('Gere a Agenda/Preview antes de executar', 'err');
+  }
+
+  const dry = document.getElementById('run-dry').checked;
+  resetSteps();
+  showOverlay('Iniciando RPA...');
+  setRunBtns(true);
+  document.getElementById('run-log').innerHTML = '<span class="log-blue">Iniciando RPA...</span>\n';
+
+  try {
+    const r = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildCfg(dry)),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Erro ao iniciar', 'err'); setRunBtns(false); hideOverlay(); return; }
+    toast('RPA iniciado!', 'ok');
+    startPolls();
+  } catch(e) {
+    toast('Erro de conexão', 'err');
+    setRunBtns(false);
+    hideOverlay();
+  }
+}
+
+async function doCancel() {
+  await fetch('/api/cancel', { method: 'POST' });
+  stopPolls();
+  setRunBtns(false);
+  hideOverlay();
+  toast('RPA cancelado', 'warn');
+}
+
+function setRunBtns(running) {
+  document.getElementById('btn-run').disabled    =  running;
+  document.getElementById('btn-cancel').disabled = !running;
+}
+
+// POLLS
+function startPolls() {
+  if (G.pollInt) clearInterval(G.pollInt);
+  if (G.ssInt)   clearInterval(G.ssInt);
+  G.pollInt = setInterval(fetchLog, 1200);
+  G.ssInt   = setInterval(fetchSS,  2000);
+}
+
+function stopPolls() {
+  clearInterval(G.pollInt); G.pollInt = null;
+  clearInterval(G.ssInt);   G.ssInt   = null;
+}
+
+async function fetchLog() {
+  try {
+    const r = await fetch('/api/log');
+    const d = await r.json();
+    const box = document.getElementById('run-log');
+    box.innerHTML = d.log.flatMap(l => l.split('\n')).map(colorLine).filter(Boolean).join('');
+    box.scrollTop = box.scrollHeight;
+    updGlobalStatus(d.status);
+    updateSteps(d.log);
+    updateViewerFromLog(d.log);
+
+    if (d.status === 'done' || d.status === 'error') {
+      stopPolls();
+      setRunBtns(false);
+      hideOverlay();
+      d.status === 'done' ? toast('RPA concluído com sucesso!', 'ok') : toast('RPA encerrou com erro', 'err');
+    }
+  } catch(e) {}
+}
+
+async function fetchSS() {
+  try {
+    const r = await fetch('/api/screenshot');
+    if (!r.ok || r.status === 204) return;
+    const blob = await r.blob();
+    if (blob.size < 100) return;
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('ssfeed');
+    const old = img.src;
+    img.src = url;
+    img.style.display = 'block';
+    document.getElementById('v-idle').style.display = 'none';
+    if (old && old.startsWith('blob:')) URL.revokeObjectURL(old);
+    document.getElementById('v-ts').textContent = new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+function colorLine(l) {
+  const s = l.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'').trim();
+  if (!s) return '';
+  let cls = '', icon = '';
+  if (s.includes('✅') || s.includes('Concluído') || s.includes('login OK') || s.includes('Salvo')) { cls='log-green'; }
+  else if (s.includes('❌') || s.includes('[ERR]') || s.includes('Erro:') || s.includes('FAIL'))   { cls='log-red'; }
+  else if (s.includes('🏁') || s.includes('Concluído'))   { cls='log-green'; }
+  else if (s.includes('▶') || s.includes('📅') || s.includes('📝') || s.includes('📋')) { cls='log-purple'; }
+  else if (s.includes('⚠️') || s.includes('DRY') || s.includes('tentativa'))   { cls='log-amber'; }
+  else if (s.includes('🧾') || s.includes('CONFIG') || s.includes('🌐') || s.includes('🔐')) { cls='log-blue'; }
+  else if (s.includes('===='))                            { cls='log-dim'; }
+  const tag = cls ? `<span class="${cls}">` : '<span>';
+  return `${tag}${s}</span>\n`;
+}
+
+const STEP_KW = [
+  ['ADFS','login','senha'],
+  ['formulário','apontamento','incluirNovo'],
+  ['projeto','projetosSelecionado'],
+  ['atividade','idTipoAtividade'],
+  ['Data alvo','Ajustar data'],
+  ['duração','horaInicio','hora início'],
+  ['comentário','TinyMCE'],
+  ['Salvo','btnSalvar'],
+];
+
+function resetSteps() {
+  for (let i = 0; i < 8; i++) {
+    const el = document.getElementById('step-' + i);
+    if (el) el.className = 'step';
+  }
+}
+
+function updateSteps(logs) {
+  const txt = logs.join(' ').toLowerCase();
+  for (let i = 0; i < STEP_KW.length; i++) {
+    const el = document.getElementById('step-' + i);
+    if (!el) continue;
+    if (STEP_KW[i].some(k => txt.includes(k.toLowerCase()))) {
+      el.className = 'step done';
+    }
+  }
+}
+
+function showOverlay(msg) {
+  document.getElementById('v-overlay').style.display = 'flex';
+  document.getElementById('v-action').textContent = msg;
+}
+function hideOverlay() { document.getElementById('v-overlay').style.display = 'none'; }
+
+function updateViewerFromLog(logs) {
+  const last = logs.filter(l => l.includes('▶')).slice(-1)[0] || '';
+  if (last) document.getElementById('v-action').textContent = last.replace('▶','').trim();
+  const urlLine = logs.filter(l => l.includes('http')).slice(-1)[0] || '';
+  if (urlLine) {
+    const m = urlLine.match(/https?:\/\/[^\s"]+/);
+    if (m) document.getElementById('v-url').textContent = m[0];
+  }
+}
+
+// ═══════════════════════════════════════════════
+// STATUS GLOBAL
+// ═══════════════════════════════════════════════
+function pollGlobalStatus() {
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/status');
+      const d = await r.json();
+      updGlobalStatus(d.status);
+    } catch(e) {}
+  }, 3000);
+}
+
+function updGlobalStatus(st) {
+  G.rpaStatus = st;
+  const dot = document.getElementById('g-dot');
+  const txt = document.getElementById('g-status');
+  dot.className = 'status-dot' + (st !== 'idle' ? ' ' + st : '');
+  txt.textContent = st.toUpperCase();
+}
+
+// ═══════════════════════════════════════════════
+// SERVICE — CONSULTAR
+// ═══════════════════════════════════════════════
+async function fetchRealizado() {
+  const su = document.getElementById('u-suser').value.trim() || 'data54698';
+  const sp = document.getElementById('u-spass').value.trim();
+  if (!sp) return toast('Configure a senha do Service na aba Configurar', 'err');
+  const di = document.getElementById('srv-di').value.trim();
+  const df = document.getElementById('srv-df').value.trim();
+
+  const btn = document.getElementById('btn-fetch');
+  btn.disabled = true;
+  btn.textContent = '⏳ Consultando...';
+
+  try {
+    const r = await fetch('/api/service/fetch-realizado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceUser: su, servicePass: sp, dataInicio: di, dataFim: df }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Erro ao consultar', 'err'); btn.disabled=false; btn.textContent='🔗 Consultar Realizado'; return; }
+    G.srvRows = d.rows || [];
+    renderSrvResult(d);
+    document.getElementById('srv-result').style.display = '';
+    toast(`${d.total} registros encontrados`, 'ok');
+  } catch(e) { toast('Erro: ' + e.message, 'err'); }
+
+  btn.disabled = false;
+  btn.textContent = '🔗 Consultar Realizado';
+}
+
+function renderSrvResult(d) {
+  document.getElementById('srv-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${d.total}</div><div class="stat-label">Registros</div></div>
+  `;
+  const tb = document.getElementById('srv-tbody');
+  const th = document.getElementById('srv-thead');
+  tb.innerHTML = ''; th.innerHTML = '';
+
+  if (!d.rows || !d.rows.length) {
+    tb.innerHTML = '<tr><td colspan="99" style="text-align:center;color:var(--text3);padding:24px">Nenhum registro encontrado</td></tr>';
+    return;
+  }
+
+  const keys = Object.keys(d.rows[0]);
+  keys.forEach(k => { const t=document.createElement('th'); t.textContent=k; th.appendChild(t); });
+  d.rows.forEach(row => {
+    const tr = document.createElement('tr');
+    keys.forEach(k => { const td=document.createElement('td'); td.textContent=row[k]||''; tr.appendChild(td); });
+    tb.appendChild(tr);
+  });
+
+  if (d.screenshotBase64) {
+    document.getElementById('srv-ss').src = 'data:image/png;base64,' + d.screenshotBase64;
+    document.getElementById('srv-ss-card').style.display = '';
+  }
+}
+
+function copySrvCsv() {
+  if (!G.srvRows.length) return toast('Nenhum dado', 'err');
+  const keys = Object.keys(G.srvRows[0]);
+  const ls = [keys.join(','), ...G.srvRows.map(r => keys.map(k => `"${(r[k]||'').replace(/"/g,'""')}"`).join(','))];
+  navigator.clipboard.writeText(ls.join('\n')).then(() => toast('CSV copiado!', 'ok'));
+}
+function dlSrvCsv() {
+  if (!G.srvRows.length) return toast('Nenhum dado', 'err');
+  const keys = Object.keys(G.srvRows[0]);
+  const ls = [keys.join(','), ...G.srvRows.map(r => keys.map(k => `"${(r[k]||'').replace(/"/g,'""')}"`).join(','))];
+  dlText(ls.join('\n'), 'realizado_service.csv');
+}
+
+// ═══════════════════════════════════════════════
+// SERVICE — LANÇAR
+// ═══════════════════════════════════════════════
+async function doLancar() {
+  const su = document.getElementById('u-suser').value.trim() || 'data54698';
+  const sp = document.getElementById('u-spass').value.trim();
+  if (!sp) return toast('Configure a senha do Service na aba Configurar', 'err');
+  const dt = document.getElementById('lan-dt').value.trim();
+  if (!dt) return toast('Data é obrigatória', 'err');
+
+  const btn = document.getElementById('btn-lan');
+  btn.disabled = true; btn.textContent = '⏳ Lançando...';
+  document.getElementById('lan-result').style.display = 'none';
+
+  try {
+    const r = await fetch('/api/service/lancar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serviceUser:   su, servicePass: sp,
+        data:          dt,
+        horaInicio:    document.getElementById('lan-hi')?.value.trim() || '08:00',
+        horaFim:       document.getElementById('lan-hf')?.value.trim() || '12:00',
+        projeto:       document.getElementById('lan-pj').value,
+        atividade:     document.getElementById('lan-at').value || '397703',
+        tipoEsforco:   document.getElementById('lan-te').value,
+        tipoAtividade: document.getElementById('lan-ta').value,
+        conclusao:     parseInt(document.getElementById('lan-cl').value) || 99,
+        descricao:     document.getElementById('lan-desc').value,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Erro ao lançar', 'err'); btn.disabled=false; btn.textContent='📝 Lançar no Service'; return; }
+
+    document.getElementById('lan-msg').innerHTML =
+      '<div class="alert alert-ok">✅ Lançamento realizado com sucesso!</div>';
+
+    if (d.screenshotBase64) {
+      const img = document.getElementById('lan-ss');
+      img.src = 'data:image/png;base64,' + d.screenshotBase64;
+      img.style.display = 'block';
+    }
+    document.getElementById('lan-result').style.display = '';
+    toast('Lançado com sucesso!', 'ok');
+  } catch(e) { toast('Erro: ' + e.message, 'err'); }
+
+  btn.disabled = false;
+  btn.textContent = '📝 Lançar no Service';
+}
+
+// ═══════════════════════════════════════════════
+// UTILITÁRIOS
+// ═══════════════════════════════════════════════
+function toast(msg, type='ok') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3400);
+}
+
+function dlText(text, filename) {
+  const a = document.createElement('a');
+  a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+  a.download = filename;
+  a.click();
+}
+
+// ═══════════════════════════════════════════════
+// INICIALIZAR
+// ═══════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// CONFIRMATION DIALOG
+// ═══════════════════════════════════════════════════════════
+function showConfirm(opts) {
+  return new Promise(resolve => {
+    const bd = document.createElement('div');
+    bd.className = 'dialog-backdrop';
+    bd.innerHTML = `
+      <div class="dialog-box">
+        <div class="dialog-icon">${opts.icon || '🚀'}</div>
+        <div class="dialog-title">${opts.title || 'Confirmar?'}</div>
+        <div class="dialog-body">${opts.body || ''}</div>
+        <div class="dialog-btns">
+          <button class="btn btn-ghost" id="dlg-no">${opts.cancel || 'Cancelar'}</button>
+          <button class="btn btn-primary" id="dlg-yes">${opts.ok || 'Confirmar'}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bd);
+    bd.querySelector('#dlg-yes').onclick = () => { bd.remove(); resolve(true); };
+    bd.querySelector('#dlg-no').onclick  = () => { bd.remove(); resolve(false); };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PORTAL RH
+// ═══════════════════════════════════════════════════════════
+let rhPollInt = null, rhSsInt = null;
+
+function updRhDateUI() {
+  const s = document.getElementById('rh-ds').value;
+  const rng = s === 'range';
+  document.getElementById('rh-f-start').style.display = rng ? '' : 'none';
+  document.getElementById('rh-f-end').style.display   = rng ? '' : 'none';
+  document.getElementById('rh-f-list').style.display  = s === 'list' ? '' : 'none';
+}
+
+async function doRhRun() {
+  const user = document.getElementById('rh-user').value.trim();
+  const pass = document.getElementById('rh-pass').value.trim();
+  const horas = document.getElementById('rh-horas').value.trim();
+  const dryRun = document.getElementById('rh-dry').checked;
+
+  if (!user) return toast('Preencha o usuário do Portal RH', 'err');
+  if (!pass) return toast('Preencha a senha do Portal RH', 'err');
+
+  const horasArr = horas.split(',').map(h => h.trim()).filter(h => /^\d{2}:\d{2}$/.test(h));
+  if (!horasArr.length) return toast('Informe ao menos um horário válido (HH:MM)', 'err');
+
+  const confirmed = await showConfirm({
+    icon: '🕒',
+    title: 'Iniciar Acerto do Ponto?',
+    body: `
+      <strong>Usuário:</strong> ${user}<br>
+      <strong>Horários:</strong> ${horasArr.join(', ')}<br>
+      <strong>Modo:</strong> ${dryRun ? '🧪 DRY RUN (não envia)' : '⚠️ REAL — vai enviar!'}<br><br>
+      O Chrome abrirá automaticamente e realizará as solicitações.
+    `,
+    ok: dryRun ? 'Sim, iniciar (DRY RUN)' : '⚠️ Sim, enviar de verdade',
+    cancel: 'Cancelar',
+  });
+  if (!confirmed) return;
+
+  const src = document.getElementById('rh-ds').value;
+  const cfg = {
+    rhUser:      user,
+    rhPass:      pass,
+    horas:       horasArr,
+    dateSource:  src,
+    startDate:   document.getElementById('rh-start')?.value.trim(),
+    endDate:     document.getElementById('rh-end')?.value.trim() || 'auto',
+    datesList:   document.getElementById('rh-dlist')?.value.split(',').map(s=>s.trim()).filter(Boolean),
+    weekdaysOnly:document.getElementById('rh-wd').checked,
+    motivoValue: document.getElementById('rh-motivo-val').value.trim(),
+    motivoText:  document.getElementById('rh-motivo-txt').value.trim(),
+    detalhamento:document.getElementById('rh-detalhe').value.trim(),
+    dryRun:      dryRun,
+    chromePath:  (document.getElementById('u-chrome')?.value.trim() || '').includes('http') ? '' : (document.getElementById('u-chrome')?.value.trim() || ''),
+    tz:          document.getElementById('u-tz')?.value.trim() || 'America/Recife',
+  };
+
+  document.getElementById('rh-btn-run').disabled = true;
+  document.getElementById('rh-btn-cancel').disabled = false;
+  document.getElementById('rh-log').innerHTML = '<span class="log-blue">Iniciando Portal RH...</span>\n';
+  document.getElementById('rh-overlay').style.display = 'flex';
+  document.getElementById('rh-action').textContent = 'Iniciando...';
+
+  try {
+    const r = await fetch('/api/portalrh/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      toast(d.error || 'Erro ao iniciar', 'err');
+      document.getElementById('rh-btn-run').disabled = false;
+      document.getElementById('rh-btn-cancel').disabled = true;
+      document.getElementById('rh-overlay').style.display = 'none';
+      return;
+    }
+    toast('Portal RH iniciado!', 'ok');
+    startRhPolls();
+  } catch(e) {
+    toast('Erro de conexão', 'err');
+    document.getElementById('rh-btn-run').disabled = false;
+    document.getElementById('rh-btn-cancel').disabled = true;
+    document.getElementById('rh-overlay').style.display = 'none';
+  }
+}
+
+async function doRhCancel() {
+  await fetch('/api/portalrh/cancel', { method: 'POST' });
+  stopRhPolls();
+  document.getElementById('rh-btn-run').disabled = false;
+  document.getElementById('rh-btn-cancel').disabled = true;
+  document.getElementById('rh-overlay').style.display = 'none';
+  toast('Portal RH cancelado', 'warn');
+}
+
+function startRhPolls() {
+  if (rhPollInt) clearInterval(rhPollInt);
+  if (rhSsInt)   clearInterval(rhSsInt);
+  rhPollInt = setInterval(fetchRhLog, 1200);
+  rhSsInt   = setInterval(fetchRhSS,  2000);
+}
+
+function stopRhPolls() {
+  clearInterval(rhPollInt); rhPollInt = null;
+  clearInterval(rhSsInt);   rhSsInt   = null;
+}
+
+async function fetchRhLog() {
+  try {
+    const r = await fetch('/api/portalrh/log');
+    const d = await r.json();
+    const box = document.getElementById('rh-log');
+    box.innerHTML = d.log.flatMap(l => l.split('\n')).map(colorLine).filter(Boolean).join('');
+    box.scrollTop = box.scrollHeight;
+    updateRhSteps(d.log);
+    updateRhAction(d.log);
+    if (d.status === 'done' || d.status === 'error') {
+      stopRhPolls();
+      document.getElementById('rh-btn-run').disabled = false;
+      document.getElementById('rh-btn-cancel').disabled = true;
+      document.getElementById('rh-overlay').style.display = 'none';
+      d.status === 'done' ? toast('Acerto do Ponto concluído!', 'ok') : toast('Portal RH encerrou com erro', 'err');
+    }
+  } catch(e) {}
+}
+
+async function fetchRhSS() {
+  try {
+    const r = await fetch('/api/screenshot');
+    if (!r.ok || r.status === 204) return;
+    const blob = await r.blob();
+    if (blob.size < 100) return;
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('rh-ssfeed');
+    const old = img.src;
+    img.src = url; img.style.display = 'block';
+    document.getElementById('rh-idle').style.display = 'none';
+    if (old && old.startsWith('blob:')) URL.revokeObjectURL(old);
+    document.getElementById('rh-ts').textContent = new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+const RH_STEP_KW = [
+  ['login','usuário','senha','ENTRAR'],
+  ['espelho','Espelho do Ponto'],
+  ['Acerto do Ponto','acertoBtn'],
+  ['Data:','DATA_INPUT'],
+  ['Hora:','HORA_INPUT'],
+  ['motivo','Motivo','Select2'],
+  ['detalhamento','Detalhamento'],
+  ['Enviando','Concluído','DRY_RUN'],
+];
+
+function updateRhSteps(logs) {
+  const txt = logs.join(' ').toLowerCase();
+  for (let i = 0; i < RH_STEP_KW.length; i++) {
+    const el = document.getElementById('rh-step-' + i);
+    if (!el) continue;
+    if (RH_STEP_KW[i].some(k => txt.includes(k.toLowerCase()))) {
+      el.className = 'step done';
+    }
+  }
+}
+
+function updateRhAction(logs) {
+  const last = logs.filter(l => l.includes('▶')).slice(-1)[0] || '';
+  if (last) {
+    document.getElementById('rh-action').textContent = last.replace('▶','').trim();
+    const urlLine = logs.filter(l => l.includes('http')).slice(-1)[0] || '';
+    if (urlLine) { const m = urlLine.match(/https?:\/\/[^\s"]+/); if (m) document.getElementById('rh-url').textContent = m[0]; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PATCH doRun e doLancar com confirmação
+// ═══════════════════════════════════════════════════════════
+const _origDoRun = doRun;
+doRun = async function() {
+  const dry = document.getElementById('run-dry').checked;
+  const confirmed = await showConfirm({
+    icon: '⚡',
+    title: 'Iniciar RPA — Jexperts?',
+    body: `
+      <strong>Projetos:</strong> ${G.projects.map(p=>p.value).join(', ') || '(nenhum)'}<br>
+      <strong>Modo:</strong> ${dry ? '🧪 DRY RUN (não salva)' : '⚠️ REAL — vai salvar!'}<br><br>
+      O Chrome abrirá e realizará os apontamentos automaticamente.
+    `,
+    ok: dry ? 'Sim, iniciar (DRY RUN)' : '⚠️ Sim, salvar de verdade',
+    cancel: 'Cancelar',
+  });
+  if (!confirmed) return;
+  _origDoRun();
+};
+
+const _origDoLancar = doLancar;
+doLancar = async function() {
+  const confirmed = await showConfirm({
+    icon: '📝',
+    title: 'Lançar no Service?',
+    body: `
+      <strong>Data:</strong> ${document.getElementById('lan-dt').value}<br>
+      <strong>Horário:</strong> ${document.getElementById('lan-hi').value} → ${document.getElementById('lan-hf').value}<br>
+      <strong>Projeto:</strong> ${document.getElementById('lan-pj').value}<br><br>
+      O Chrome abrirá e preencherá o formulário.
+    `,
+    ok: 'Sim, lançar',
+    cancel: 'Cancelar',
+  });
+  if (!confirmed) return;
+  _origDoLancar();
+};
+
+const _origFetchRealizado = fetchRealizado;
+fetchRealizado = async function() {
+  const confirmed = await showConfirm({
+    icon: '🔍',
+    title: 'Consultar Realizado?',
+    body: `O Chrome abrirá, fará login no Service e extrairá os lançamentos do período informado.`,
+    ok: 'Sim, consultar',
+    cancel: 'Cancelar',
+  });
+  if (!confirmed) return;
+  _origFetchRealizado();
+};
+
+// ═══════════════════════════════════════════════════════════
+// PREVIEW APONTAMENTOS
+// ═══════════════════════════════════════════════════════════
+async function loadPreviewAp() {
+  if (!G.projects.length) return toast('Configure os projetos primeiro', 'err');
+
+  const body = document.getElementById('preview-ap-body');
+  body.innerHTML = '<div class="empty-state"><div class="spinner" style="margin:0 auto 12px"></div>Calculando...</div>';
+
+  const rows = G.agendaRows;
+  G.previewApRows = [];
+
+  if (!rows.length) {
+    body.innerHTML = '<div class="alert alert-warn">⚠️ Nenhuma linha na Agenda. Vá em Calc Log → Enviar para Agenda ou adicione manualmente.</div>';
+    return;
+  }
+
+  let html = '<div class="table-wrap"><table>';
+  html += '<thead><tr><th>Data</th><th>Projeto</th><th>Duração</th><th>Início</th><th>Fim</th><th>Tipo</th></tr></thead><tbody>';
+
+  let totalMin = 0;
+  for (const row of rows) {
+    const data = String(row.data || '').trim();
+    const dur = row.duracao || '08:00';
+    const [dh, dm] = dur.split(':').map(Number);
+    const dayMin = (dh||0)*60 + (dm||0);
+    const base = row.horaInicio ? timeToMinutes2(row.horaInicio) : 8*60;
+    const dist = distributePreview(dayMin, G.projects.length, base);
+
+    G.projects.forEach((p, pi) => {
+      const d = dist[pi];
+      const execRow = {
+        data,
+        projeto: String(p.value),
+        duracao: d.dur,
+        horaInicio: d.hi,
+        horaFim: d.hf,
+        activityValue: String(p.activityValue || '35'),
+      };
+      G.previewApRows.push(execRow);
+
+      html += `<tr>
+        <td class="td-green" style="white-space:nowrap">${execRow.data}</td>
+        <td style="font-size:12px">#${execRow.projeto}</td>
+        <td class="td-amber">${execRow.duracao}</td>
+        <td>${execRow.horaInicio}</td>
+        <td>${execRow.horaFim}</td>
+        <td class="td-dim">${execRow.activityValue}</td>
+      </tr>`;
+      totalMin += d.min;
+    });
+  }
+
+  html += `</tbody></table></div>`;
+  const th = Math.floor(totalMin/60), tm = totalMin%60;
+  html += `<div class="stats-row" style="margin-top:16px">
+    <div class="stat-card"><div class="stat-value">${rows.length}</div><div class="stat-label">Dias</div></div>
+    <div class="stat-card"><div class="stat-value">${th}h ${tm}m</div><div class="stat-label">Total a Apontar</div></div>
+    <div class="stat-card"><div class="stat-value">${G.projects.length}</div><div class="stat-label">Projetos</div></div>
+  </div>`;
+
+  body.innerHTML = html;
+  toast(`${rows.length} dias × ${G.projects.length} projetos`, 'ok');
+}
+
+function timeToMinutes2(s) {
+  if (!s) return null;
+  const m = s.match(/^(\d+):(\d{2})$/);
+  if (!m) return null;
+  return parseInt(m[1])*60 + parseInt(m[2]);
+}
+
+function minutesToTime2(m) {
+  m = Math.max(0, Math.round(m));
+  return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+}
+
+function distributePreview(totalMin, n, baseCursor) {
+  const ALMOCO_I = 12*60, ALMOCO_F = 13*60;
+  const per = Math.floor(totalMin/n), rem = totalMin - per*n;
+  let cursor = baseCursor ?? 8*60;
+  return Array.from({length:n}, (_, i) => {
+    const mins = per + (i < rem ? 1 : 0);
+    const hi = minutesToTime2(cursor);
+    let end = cursor + mins;
+    if (cursor < ALMOCO_I && end > ALMOCO_I) end += (ALMOCO_F - ALMOCO_I);
+    else if (cursor >= ALMOCO_I && cursor < ALMOCO_F) { cursor = ALMOCO_F; end = cursor + mins; }
+    const hf = minutesToTime2(end);
+    if (end > ALMOCO_I && end < ALMOCO_F) cursor = ALMOCO_F; else cursor = end;
+    return { hi, hf, dur: minutesToTime2(mins), min: mins };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PERSISTÊNCIA DE CONFIGURAÇÕES
+// ═══════════════════════════════════════════════════════════
+async function saveConfig() {
+  const cfg = {
+    user:        document.getElementById('u-user')?.value,
+    pass:        document.getElementById('u-pass')?.value,
+    suser:       document.getElementById('u-suser')?.value,
+    spass:       document.getElementById('u-spass')?.value,
+    chrome:      document.getElementById('u-chrome')?.value,
+    tz:          document.getElementById('u-tz')?.value,
+    ds:          document.getElementById('sel-ds')?.value,
+    start:       document.getElementById('u-start')?.value,
+    end:         document.getElementById('u-end')?.value,
+    weekdays:    document.getElementById('chk-wd')?.checked,
+    mode:        G.mode,
+    projects:    G.projects,
+    rhUser:      document.getElementById('rh-user')?.value,
+    rhPass:      document.getElementById('rh-pass')?.value,
+    rhHoras:     document.getElementById('rh-horas')?.value,
+    rhMotVal:    document.getElementById('rh-motivo-val')?.value,
+    rhMotTxt:    document.getElementById('rh-motivo-txt')?.value,
+    rhDetalhe:   document.getElementById('rh-detalhe')?.value,
+  };
+  try {
+    const r = await fetch('/api/config/save', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    const d = await r.json();
+    if(d.ok) toast('Configurações salvas!','ok');
+  } catch(e) { toast('Erro ao salvar: '+e.message,'err'); }
+}
+
+async function loadConfig() {
+  try {
+    const r = await fetch('/api/config/load');
+    const d = await r.json();
+    if(!d.config) return;
+    const c = d.config;
+    const set = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.value=v; };
+    set('u-user',c.user); set('u-pass',c.pass);
+    set('u-suser',c.suser); set('u-spass',c.spass);
+    set('u-chrome',c.chrome); set('u-tz',c.tz);
+    set('rh-user',c.rhUser); set('rh-pass',c.rhPass);
+    set('rh-horas',c.rhHoras); set('rh-motivo-val',c.rhMotVal);
+    set('rh-motivo-txt',c.rhMotTxt); set('rh-detalhe',c.rhDetalhe);
+    if(c.ds) document.getElementById('sel-ds').value = c.ds;
+    set('u-start',c.start); set('u-end',c.end);
+    if(c.weekdays!==undefined) document.getElementById('chk-wd').checked = c.weekdays;
+    if(c.mode) { G.mode = c.mode; setMode(c.mode); }
+    if(c.projects?.length) { G.projects = c.projects; renderProjects(); }
+    updDateUI();
+    toast('Configurações carregadas!','info');
+  } catch(e) {}
+}
+
+
+boot();
+</script>
+</body>
+</html>

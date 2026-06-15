@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>EasyMOB - Registrar Ponto (Simulado)</title>
+  <style>
+    :root{--brand:#0b3d91;--ok:#1a7f37;--warn:#b54708;--bd:#d9d9d9;--bg:#0b3d910d}
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:980px;margin:32px auto;padding:0 16px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .pill{background:var(--bg);border:1px solid #bcd0ff;color:var(--brand);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}
+    .card{border:1px solid var(--bd);border-radius:14px;padding:18px;margin-top:14px;background:#fff;box-shadow:0 6px 20px #0000000a}
+    .row{display:flex;gap:14px;flex-wrap:wrap}
+    .col{flex:1;min-width:260px}
+    .btn{padding:11px 14px;border-radius:10px;border:1px solid #cfcfcf;background:#fff;cursor:pointer;font-weight:800;width:100%}
+    .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+    .btn.ghost{background:#fff}
+    #ultimaMarcacao{margin:8px 0 0;color:var(--brand);font-weight:800}
+    ul{padding-left:18px}
+    .muted{color:#666;font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media (max-width:720px){.grid{grid-template-columns:1fr}}
+    textarea{width:100%;min-height:84px;border:1px solid #cfcfcf;border-radius:10px;padding:10px}
+    .badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800}
+    .badge.ok{background:#e9f9ef;color:var(--ok);border:1px solid #bfeacc}
+    .badge.warn{background:#fff7ed;color:var(--warn);border:1px solid #fed7aa}
+    .mini{font-size:12px;color:#666}
+    .hr{height:1px;background:#eee;margin:14px 0}
+    .right{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+    a.link{color:var(--brand);text-decoration:none;font-weight:700}
+  </style>
+</head>
+<body>
+
+  <div class="top">
+    <h1>EasyMOB - Registrar Ponto <span class="pill">SIMULADO</span></h1>
+    <div class="pill">Usuário: <span id="lblUsuario">—</span> • Local: <span id="lblLocal">—</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <h3>Status</h3>
+        <div id="statusBadge" class="badge warn">⏳ Sem marcação</div>
+        <p id="ultimaMarcacao">Nenhuma marcação ainda</p>
+        <p class="muted">Fluxo recomendado: <strong>Registrar</strong> → <strong>Consultar</strong> → validar que apareceu na lista.</p>
+      </div>
+
+      <div class="col">
+        <h3>Ações</h3>
+        <div class="grid">
+          <input id="btnRegistrar" type="button" class="btn primary" value="Registrar Ponto" />
+          <input id="btnConsultar" type="button" class="btn ghost" value="Consultar Marcações" />
+        </div>
+
+        <div class="hr"></div>
+
+        <h3>Detalhes (opcional)</h3>
+        <textarea id="txtDetalhamento" placeholder="Ex.: Registro automático (simulado) — aula de RPA"></textarea>
+        <div class="mini">No EasyMOB real existe campo de detalhes; aqui é apenas demonstrativo.</div>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3>Marcações do dia</h3>
+    <ul id="listaMarcacoes"></ul>
+
+    <div class="hr"></div>
+
+    <div class="right">
+      <a class="link" href="login.html" id="btnSair">Sair (voltar ao login)</a>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
