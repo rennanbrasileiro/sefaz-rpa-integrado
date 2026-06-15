@@ -93,8 +93,6 @@ async function portalCancel(){ await api('/portalrh/cancel',{method:'POST'}); re
 async function channelPreview(){ const b=config(); b.scheduleRows=parseScheduleText(); try{ const r=await api('/preview',{method:'POST',body:JSON.stringify(b)}); $('channelResult').textContent=(r.csvContent||'sem CSV')+'\n\n'+(r.envContent||''); }catch(e){ $('channelResult').textContent='ERRO: '+e.message; } }
 async function channelRun(dry){ const b=config(); b.scheduleRows=parseScheduleText(); b.dryRun=dry; if(!dry && !confirm('ATENÇÃO: Channel em modo REAL. Confirma?'))return; try{ await api('/run',{method:'POST',body:JSON.stringify(b)}); nav('logs'); setTimeout(refreshLogs,1000); }catch(e){ $('channelResult').textContent=e.message; } }
 async function channelCancel(){ await api('/cancel',{method:'POST'}); refreshLogs(); }
-function calcMonth(){ const target=hhmmToMin(val('calcTarget')), done=hhmmToMin(val('calcDone')), prev=hhmmToMin(val('calcPrev')), days=Number(val('calcDays')||0), daily=hhmmToMin(val('calcDaily')); const remaining=Math.max(0,target-done-prev); const perDay=days>0?Math.ceil(remaining/days):0; const msg=`<div class="grid4"><div class="stat"><b>${minToHHMM(remaining)}</b><span>restante</span></div><div class="stat"><b>${minToHHMM(perDay)}</b><span>necessário/dia</span></div><div class="stat"><b>${minToHHMM(daily)}</b><span>padrão</span></div><div class="stat"><b>${perDay>daily?'Mais que padrão':perDay<daily?'Menos que padrão':'No padrão'}</b><span>sugestão</span></div></div>`; $('calcResult').innerHTML=msg; }
-
 async function easyEnableDayRoutine(){
   await saveAll();
   const cfg={
@@ -129,11 +127,11 @@ async function saveAutomation(){ const cfg={enabled:bool('autoEnabled'), checkEv
 async function startAutomation(){ const r=await api('/automation/start',{method:'POST'}); $('autoResult').innerHTML='<div class="alert ok">Orquestrador iniciado.</div>'; refreshStatus(); }
 async function stopAutomation(){ await api('/automation/stop',{method:'POST'}); $('autoResult').innerHTML='<div class="alert warn">Orquestrador parado.</div>'; refreshStatus(); }
 async function refreshAutomation(){ const r=await api('/automation/status'); $('autoResult').innerHTML='<pre class="log" style="height:220px">'+json(r)+'</pre>'; }
-async function refreshLogs(){ try{ const e=await api('/easymob/log'); $('logEasy').textContent=readableLog(e); const p=e.latestReport?.plan_after_wait || e.latestReport?.plan || e.singlePlan; if(p){ if($('easyPlanBox')) $('easyPlanBox').innerHTML=planHtml(p); if($('todayPlan')) $('todayPlan').innerHTML=planHtml(p); } }catch{} try{ const c=await api('/log'); $('logChannel').textContent=(c.log||[]).join(''); }catch{} try{ const p=await api('/portalrh/log'); $('logPortal').textContent=(p.log||[]).join(''); }catch{} try{ const a=await api('/automation/log'); $('logAuto').textContent=(a.fileLog || (a.log||[]).join('\n')); }catch{} }
+async function refreshLogs(){ try{ const e=await api('/easymob/log'); $('logEasy').textContent=readableLog(e); const p=e.latestReport?.plan_after_register || e.latestReport?.plan_after_wait || e.latestReport?.plan || e.singlePlan; if(p){ if($('easyPlanBox')) $('easyPlanBox').innerHTML=planHtml(p); if($('todayPlan')) $('todayPlan').innerHTML=planHtml(p); } }catch{} try{ const c=await api('/log'); $('logChannel').textContent=(c.log||[]).join(''); }catch{} try{ const p=await api('/portalrh/log'); $('logPortal').textContent=(p.log||[]).join(''); }catch{} try{ const a=await api('/automation/log'); $('logAuto').textContent=(a.fileLog || (a.log||[]).join('\n')); }catch{} await refreshCentralState(); }
 function refreshEasyShot(){ const img=$('shotEasy'); img.src='/api/easymob/screenshot?t='+Date.now(); }
 function refreshChannelShot(){ const img=$('shotChannel'); img.src='/api/screenshot?t='+Date.now(); }
 async function refreshStatus(){ try{ const e=await api('/easymob/status'); $('stEasy').textContent=e.status; }catch{$('stEasy').textContent='off'} try{ const c=await api('/status'); $('stChannel').textContent=c.status; }catch{$('stChannel').textContent='off'} try{ const p=await api('/portalrh/status'); $('stPortal').textContent=p.status; }catch{$('stPortal').textContent='off'} try{ const a=await api('/automation/status'); $('stAuto').textContent=a.running?'running':'idle'; }catch{$('stAuto').textContent='off'} const running=[...document.querySelectorAll('.stat b')].some(x=>/running/i.test(x.textContent)); $('globalDot').className='dot '+(running?'running':''); }
-async function boot(){ try{catalog=await api('/catalog'); renderProjectSelect();}catch(e){console.error(e)} await loadAll(); refreshStatus(); setInterval(refreshStatus,5000); }
+async function boot(){ try{catalog=await api('/catalog'); renderProjectSelect();}catch(e){console.error(e)} await loadAll(); refreshStatus(); await refreshCentralState(); setInterval(refreshStatus,5000); setInterval(refreshCentralState,10000); }
 
 function stateSummaryHtml(state = {}, pending = []) {
   const e = state.easymob || {};
@@ -152,11 +150,6 @@ async function refreshCentralState(){
     if($('channelPending')) $('channelPending').innerHTML = pending.length ? `<div class="alert warn">${pending.length} pendência(s) aberta(s). Execução REAL do Channel deve aguardar conferência.</div>` : '<div class="alert ok">Sem pendências impeditivas abertas.</div>';
   }catch(e){ console.warn('state unavailable', e); }
 }
-const oldRefreshLogs = refreshLogs;
-refreshLogs = async function(){ await oldRefreshLogs(); await refreshCentralState(); };
-const oldBoot = boot;
-boot = async function(){ await oldBoot(); await refreshCentralState(); setInterval(refreshCentralState, 10000); };
-
 function calcMonth(){
   const target=hhmmToMin(val('calcTarget')), done=hhmmToMin(val('calcDone')), prev=hhmmToMin(val('calcPrev')), current=hhmmToMin(val('calcCurrent')), days=Number(val('calcDays')||0), daily=hhmmToMin(val('calcDaily'));
   const delay=hhmmToMin(val('calcDelay')), missed=Number(val('calcMissed')||0);
