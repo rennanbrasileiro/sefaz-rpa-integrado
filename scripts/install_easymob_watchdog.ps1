@@ -7,6 +7,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Política restrita: se o PowerShell corporativo bloquear scripts, use:
+#   scripts\run_easymob_watchdog.bat
+# ou execute diretamente: cd easymob\rpa && python runner.py --watchdog --headless
 $runner = Join-Path $ProjectRoot "scripts\run_easymob_watchdog.ps1"
 if (-not (Test-Path $runner)) { throw "Arquivo não encontrado: $runner" }
 
