@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const { buildEnvContent, buildScheduleCsv } = require('../lib/envBuilder');
 const { PROJECTS } = require('../lib/config');
 const { timeToMinutes } = require('../lib/timeHelpers');
+const stateStore = require('../lib/stateStore');
 
 const router = express.Router();
 const ROOT = path.join(__dirname, '..');
@@ -222,6 +223,8 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
     EASYMOB_DRY_RUN: String(dryRun),
     EASYMOB_CONFIRM_REAL: String(!dryRun && easy.confirmReal === true),
     EASYMOB_CONFIRM_CUSTOM_TIME: 'true',
+    EASYMOB_WATCHDOG_ENABLED: 'true',
+    EASYMOB_BUSINESS_DAYS_ONLY: String(easy.businessDaysOnly !== false),
     EASYMOB_DAILY_TARGET_MINUTES: pick(userCfg.easyDailyTargetMinutes, process.env.EASYMOB_DAILY_TARGET_MINUTES, '480'),
     EASYMOB_LUNCH_MINUTES: pick(userCfg.easyLunchMinutes, process.env.EASYMOB_LUNCH_MINUTES, '60'),
     EASYMOB_SCREENSHOT_POLICY: pick(userCfg.easyScreenshotPolicy, process.env.EASYMOB_SCREENSHOT_POLICY, 'error'),
@@ -235,6 +238,12 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
 }
 
 function runChannelFromSavedConfig(cfg) {
+  const blockingPendencies = stateStore.readPending().filter(p => p.status !== 'closed' && ['ponto_nao_registrado','janela_perdida','falha_modal','divergencia_easymob_service','divergencia_easymob_portalrh','conferencia_antes_channel'].includes(p.type));
+  if (cfg.channel?.dryRun === false && blockingPendencies.length) {
+    stateStore.updateState({ channel: { lastStatus: 'blocked', blockingPendencies } });
+    log(`Channel semanal bloqueado por ${blockingPendencies.length} pendência(s) de ponto.`);
+    return;
+  }
   const userCfg = loadUserConfig();
   if (!userCfg) { log('Channel semanal ignorado: userconfig.json ainda não existe.'); return; }
   const finalCfg = { ...userCfg, dryRun: cfg.channel?.dryRun !== false };
@@ -280,6 +289,7 @@ function startScheduler() {
   const cfg = loadConfig();
   running = true;
   log(`Orquestrador iniciado. enabled=${cfg.enabled}; intervalo=${cfg.checkEverySeconds || 30}s`);
+  stateStore.updateState({ easymob: { watchdog: { status: 'running', startedAt: new Date().toISOString(), intervalSeconds: cfg.checkEverySeconds || 30 } } });
   timer = setInterval(() => {
     try { runDueTasks(new Date()); } catch (e) { log(`Erro no ciclo do orquestrador: ${e.message}`); }
   }, Math.max(10, Number(cfg.checkEverySeconds || 30)) * 1000);
@@ -288,6 +298,7 @@ function stopScheduler() {
   if (timer) clearInterval(timer);
   timer = null; running = false;
   log('Orquestrador parado.');
+  stateStore.updateState({ easymob: { watchdog: { status: 'stopped', stoppedAt: new Date().toISOString() } } });
 }
 
 router.get('/status', (_req, res) => {

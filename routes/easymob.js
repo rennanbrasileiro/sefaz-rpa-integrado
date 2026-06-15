@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const stateStore = require('../lib/stateStore');
 
 const router = express.Router();
 const ROOT = path.join(__dirname, '..');
@@ -89,11 +90,12 @@ function spawnEasy(args = [], envAdd = {}) {
   ensureDirs();
   easyLog = [];
   easyStatus = 'running';
+  stateStore.updateState({ easymob: { lastExecution: { status: 'running', startedAt: new Date().toISOString(), args }, watchdog: { status: args.includes('--watchdog') ? 'running' : 'manual' } } });
   const env = { ...process.env, ...envAdd };
   easyProc = spawn(pythonBin(), ['runner.py', ...args], { cwd: EASY_RPA, env });
   easyProc.stdout.on('data', d => pushLog(d.toString()));
   easyProc.stderr.on('data', d => pushLog('[ERR] ' + d.toString()));
-  easyProc.on('close', code => { easyStatus = code === 0 ? 'done' : 'error'; easyProc = null; });
+  easyProc.on('close', code => { easyStatus = code === 0 ? 'done' : 'error'; const rep = latestReport(); const plan = rep?.plan_after_register || rep?.plan_after_wait || rep?.plan || null; stateStore.updateState({ easymob: { marksToday: plan?.marks || [], nextAction: plan?.action || null, plannedTime: plan?.next_due || plan?.target_time || null, lastExecution: { status: easyStatus, finishedAt: new Date().toISOString(), reportStatus: rep?.status || null }, watchdog: { status: args.includes('--watchdog') ? easyStatus : 'idle' } } }); easyProc = null; });
   return easyProc;
 }
 
@@ -112,7 +114,7 @@ function argsFromBody(body = {}, mode = 'run') {
 
 function clearLogFile() { try { fs.writeFileSync(LOG_PATH, '', 'utf-8'); } catch {} }
 
-router.get('/status', (req, res) => { const rep = latestReport(); res.json({ status: easyStatus, singlePlan, latestReport: rep?.plan_after_wait || rep?.plan || null, report: rep || null }); });
+router.get('/status', (req, res) => { const rep = latestReport(); res.json({ status: easyStatus, singlePlan, latestReport: rep?.plan_after_register || rep?.plan_after_wait || rep?.plan || null, report: rep || null, state: stateStore.readState().easymob }); });
 router.get('/log', (req, res) => {
   let fileLog = '';
   try { if (fs.existsSync(LOG_PATH)) fileLog = fs.readFileSync(LOG_PATH, 'utf-8'); } catch {}

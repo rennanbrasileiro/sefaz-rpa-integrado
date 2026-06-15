@@ -12,6 +12,7 @@ const { launchBrowser, sleep } = require('./helpers');
 const { fetchRealizado, lancarRealizado } = require('./service');
 const easymobRouter = require('./easymob');
 const automationRouter = require('./automation');
+const stateStore = require('../lib/stateStore');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -190,6 +191,7 @@ function buildScheduleCsvForRpa(cfg = {}) {
 }
 
 router.get('/health', (req, res) => res.json({ ok: true, app: 'SEFAZ RPA Integrado', modules: ['channel', 'service', 'portalrh', 'easymob'] }));
+router.get('/state', (_req, res) => res.json({ ok: true, state: stateStore.readState(), pending: stateStore.readPending(), journal: stateStore.readJournal(40) }));
 
 // ═══ CATÁLOGO ═══════════════════════════════════════════════
 router.get('/catalog', (req, res) => {
@@ -269,6 +271,11 @@ router.post('/run', (req, res) => {
     if (!Array.isArray(cfg.projects) || !cfg.projects.length) {
       return res.status(400).json({ error: 'Channel/JExperts não executado: adicione ao menos um projeto.' });
     }
+    const blockingPendencies = stateStore.readPending().filter(p => p.status !== 'closed' && ['ponto_nao_registrado','janela_perdida','falha_modal','divergencia_easymob_service','divergencia_easymob_portalrh','conferencia_antes_channel'].includes(p.type));
+    if (cfg.dryRun === false && blockingPendencies.length) {
+      stateStore.updateState({ channel: { lastStatus: 'blocked', blockingPendencies } });
+      return res.status(409).json({ error: `Channel REAL bloqueado: existem ${blockingPendencies.length} pendência(s) de ponto no período. Faça conferência antes do fechamento.`, pending: blockingPendencies });
+    }
     fs.writeFileSync(path.join(ROOT, '.env'), buildEnvContent(cfg), 'utf-8');
     if (cfg.scheduleRows?.length) {
       const csv = buildScheduleCsvForRpa(cfg);
@@ -278,7 +285,7 @@ router.post('/run', (req, res) => {
     rpaProc = spawn('node', [path.join(ROOT, 'rpa', 'channel.js')], { cwd: ROOT });
     rpaProc.stdout.on('data', d => { const l = d.toString(); rpaLog.push(l); process.stdout.write(l); });
     rpaProc.stderr.on('data', d => { const l = '[ERR] ' + d.toString(); rpaLog.push(l); process.stderr.write(l); });
-    rpaProc.on('close', code => { rpaStatus = code === 0 ? 'done' : 'error'; rpaProc = null; });
+    rpaProc.on('close', code => { rpaStatus = code === 0 ? 'done' : 'error'; stateStore.updateState({ channel: { lastStatus: rpaStatus, finishedAt: new Date().toISOString() } }); stateStore.appendJournal({ module: 'channel', action: 'run', mode: cfg.dryRun === false ? 'real' : 'dry-run', status: rpaStatus, severity: code === 0 ? 'info' : 'error' }); rpaProc = null; });
     res.json({ ok: true });
   } catch (e) { rpaStatus = 'error'; res.status(500).json({ error: e.message }); }
 });

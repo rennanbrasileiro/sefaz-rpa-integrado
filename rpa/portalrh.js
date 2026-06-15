@@ -5,6 +5,7 @@ require('dotenv').config();
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const stateStore = require('../lib/stateStore');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'logs');
@@ -23,6 +24,7 @@ const REPORT_URL = env('PORTALRH_REPORT_URL', URL);
 const DRY_RUN = envBool('PORTALRH_DRY_RUN', true);
 const SLOWMO = Number(env('PORTALRH_SLOWMO', '250')) || 250;
 const SCREENSHOT_POLICY = env('PORTALRH_SCREENSHOT_POLICY', 'error').toLowerCase();
+function currentMonthPeriod() { const now = new Date(); const first = new Date(now.getFullYear(), now.getMonth(), 1); const last = new Date(now.getFullYear(), now.getMonth() + 1, 0); const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; return { dataInicio: env('PORTALRH_START', fmt(first)), dataFim: env('PORTALRH_END', fmt(last)), month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` }; }
 const LIVE_SHOT = path.join(SHOT_DIR, 'live.png');
 
 const SEL_USER = env('PORTALRH_USER_SELECTOR', "input[type='email'],input[name*='user' i],input[id*='user' i],input[name*='login' i],input[id*='login' i]");
@@ -71,6 +73,8 @@ async function launchBrowser() {
 (async () => {
   log('Portal RH iniciado em módulo separado.');
   log(`DRY_RUN=${DRY_RUN}`);
+  const period = currentMonthPeriod();
+  stateStore.updateState({ portalRh: { lastStatus: 'running', period } });
   if (!URL) {
     log('Portal RH não executado: PORTALRH_URL não configurada. Informe a URL no painel antes de validar este módulo.');
     process.exit(0);
@@ -106,8 +110,13 @@ async function launchBrowser() {
     const out = path.join(LOG_DIR, 'portalrh_ultimo_relatorio.txt');
     fs.writeFileSync(out, body.slice(0, 20000), 'utf-8');
     log(`Texto do Portal RH salvo em: ${out}`);
+    const summary = { textLength: body.length, reportPath: out };
+    stateStore.updateState({ portalRh: { lastStatus: 'success', period, summary } });
+    stateStore.appendJournal({ module: 'portalrh', action: 'consulta_espelho_saldo', mode: DRY_RUN ? 'dry-run' : 'real', status: 'success', reason: 'Consulta de frequência/espelho/saldo', severity: 'info' });
     log('Portal RH concluído. Nenhuma ação de envio foi executada por este módulo.');
   } catch (e) {
+    stateStore.updateState({ portalRh: { lastStatus: 'error', period, error: e.message } });
+    stateStore.appendJournal({ module: 'portalrh', action: 'consulta_espelho_saldo', mode: DRY_RUN ? 'dry-run' : 'real', status: 'failed', error: e.message, severity: 'error', nextRecommendedAction: 'Conferir URL/seletores do Portal RH antes de acerto.' });
     log(`Erro Portal RH: ${e.message}`);
     await shot(page, 'erro', true).catch(() => {});
     process.exitCode = 1;

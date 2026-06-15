@@ -13,6 +13,7 @@ from config import (
     LIVE_PREVIEW, KEEP_LAST_SCREENSHOTS, KEEP_BROWSER_OPEN,
 )
 from jornada import get_horario_alvo_atual
+from state_store import append_journal as store_append_journal, add_pending, update_state
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGS_DIR = ROOT / "logs"
@@ -43,21 +44,46 @@ def write_report(payload: dict) -> Path:
 
 
 def append_journal(event: dict):
-    """Journal confiável, em JSONL, para o painel/Codex auditar o que aconteceu.
-    Não grava credenciais. Cada linha é um evento independente.
-    """
+    """Journal padronizado JSONL, sem credenciais, sincronizado com estado central."""
     try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
-            "at": datetime.now().isoformat(timespec="seconds"),
             "module": "easymob",
-            **(event or {}),
+            "action": event.get("action") or event.get("type") or "execution",
+            "mode": "teste" if DRY_RUN else "real",
+            "plannedTime": event.get("plannedTime") or event.get("target_time"),
+            "executedAt": event.get("executedAt") or datetime.now().strftime("%H:%M"),
+            "status": event.get("status"),
+            "reason": event.get("reason"),
+            "marksBefore": event.get("marksBefore"),
+            "marksAfter": event.get("marksAfter"),
+            "error": event.get("error"),
+            "severity": event.get("severity", "info"),
+            "nextRecommendedAction": event.get("nextRecommendedAction") or event.get("nextStep"),
+            **{k: v for k, v in (event or {}).items() if k not in {"action", "type", "target_time", "status", "reason", "marksBefore", "marksAfter", "error", "severity", "nextRecommendedAction", "nextStep"}},
         }
-        with JOURNAL_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        store_append_journal(payload)
     except Exception as e:
         log(f"AVISO: não consegui escrever journal: {e!r}")
 
+
+def register_pending(kind: str, plan: dict = None, reason: str = "", error: str = "", severity: str = "critical"):
+    plan = plan or {}
+    try:
+        return add_pending({
+            "type": kind,
+            "module": "easymob",
+            "severity": severity,
+            "cause": reason or error or plan.get("reason"),
+            "plannedTime": plan.get("next_due") or plan.get("target_time"),
+            "attemptedAt": datetime.now().isoformat(timespec="seconds"),
+            "expectedAction": plan.get("action"),
+            "recommendation": "Conferir EasyMOB, Service e Portal RH; se necessário, abrir acerto no Portal RH antes do Channel.",
+            "marks": plan.get("marks") or [],
+            "error": error,
+        })
+    except Exception as e:
+        log(f"AVISO: não consegui registrar pendência: {e!r}")
+        return None
 
 def cleanup_screenshots():
     try:
@@ -238,11 +264,32 @@ def close_mark_modal(page, report=None, reason="antes_da_acao"):
     return closed
 
 
+def ensure_register_clickable(page, report=None):
+    close_mark_modal(page, report, reason="verificacao_pre_registro")
+    loc, selector, tested = first_visible(page, SEL_BTN_REGISTER, timeout=1800)
+    if not loc:
+        raise RuntimeError(f"Botão Registrar Ponto não está visível. Seletores testados: {tested or SEL_BTN_REGISTER}")
+    try:
+        if not loc.is_enabled(timeout=1000):
+            raise RuntimeError(f"Botão Registrar Ponto localizado em {selector}, mas está desabilitado.")
+        loc.scroll_into_view_if_needed(timeout=3000)
+        box = loc.bounding_box(timeout=1500)
+        if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
+            raise RuntimeError(f"Botão Registrar Ponto localizado em {selector}, mas não possui área clicável.")
+        log(f"Botão Registrar Ponto pronto para clique via {selector}.")
+        return loc, selector
+    except Exception:
+        snapshot(page, "registrar_nao_clicavel", report, error=True)
+        raise
+
+
 def click_register_safely(page, report=None):
     """Clique real no Registrar Ponto, com fechamento de modal e retry controlado."""
-    close_mark_modal(page, report, reason="pre_registro")
+    loc, selector = ensure_register_clickable(page, report)
     try:
-        return click_first(page, SEL_BTN_REGISTER, "Registrar Ponto", text_fallbacks=["registrar", "bater", "ponto"])
+        loc.click(timeout=12000)
+        log(f"Clicou Registrar Ponto com validação prévia via {selector}")
+        return True
     except Exception as first_error:
         log(f"AVISO: clique normal em Registrar falhou. Vou limpar modal/backdrop e tentar mais uma vez. Erro: {first_error!r}")
         close_mark_modal(page, report, reason="retry_registro")
@@ -672,6 +719,15 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
         horario_alvo_str, dt_fim_janela = get_horario_alvo_atual()
         if not horario_alvo_str:
             log("Não é hora de bater o ponto EasyMOB pela regra. Encerrando sem ação.")
+            update_state(easymob={"watchdog": {"status": "out_of_window", "lastCycleAt": datetime.now().isoformat(timespec="seconds")}})
+            try:
+                last_target = HORARIOS[-1] if HORARIOS else None
+                last_min = hhmm_to_minutes(last_target) if last_target else None
+                if last_min is not None and current_minutes() > last_min + JANELA_RETRY_MINUTOS:
+                    register_pending("janela_perdida", {"target_time": last_target, "next_due": last_target, "action": "watchdog"}, "Watchdog executou fora da janela operacional configurada.", severity="warning")
+                    append_journal({"action": "watchdog", "status": "missed_window", "plannedTime": last_target, "reason": "Fora da janela operacional; não inventar ponto.", "severity": "warning", "nextRecommendedAction": "Conferir realizado no Service/Portal RH e abrir acerto se necessário."})
+            except Exception:
+                pass
             return
         log(f"EXECUÇÃO ROTINEIRA: alvo {horario_alvo_str}; ação será calculada após consulta.")
 
@@ -707,6 +763,7 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
 
             plan = build_day_plan(marks, target_time=horario_alvo_str, single_run=single_run)
             report["plan"] = plan
+            update_state(easymob={"marksToday": plan.get("marks") or [], "nextAction": plan.get("action"), "plannedTime": plan.get("next_due") or plan.get("target_time"), "lastPlan": plan, "watchdog": {"status": "cycle", "lastCycleAt": datetime.now().isoformat(timespec="seconds")}})
             log("Marcações consideradas para HOJE: " + (", ".join(plan.get("marks") or []) if plan.get("marks") else "nenhuma"))
             if plan.get("ignored_other_days_count"):
                 log(f"Histórico ignorado para decisão de hoje: {plan.get('ignored_other_days_count')} marcações de outros dias.")
@@ -757,22 +814,30 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
                     if after_count <= before_count:
                         log("AVISO: registro clicado, mas a reconsulta não mostrou nova marcação. Verifique no EasyMOB/Portal RH.")
                         report["status"] = "OK_NEEDS_CONFIRMATION"
+                        register_pending("ponto_nao_registrado", plan, "Registro clicado, mas a nova marcação não apareceu na reconsulta.")
                     else:
                         log("Registro confirmado pela reconsulta das marcações do dia.")
                         report["status"] = "OK"
+                    update_state(easymob={"marksToday": plan_after.get("marks") or [], "nextAction": plan_after.get("action"), "plannedTime": plan_after.get("next_due") or plan_after.get("target_time"), "lastExecution": {"status": report.get("status"), "finishedAt": datetime.now().isoformat(timespec="seconds"), "action": plan.get("action")}})
                 except Exception as confirm_error:
                     log(f"AVISO: não consegui confirmar o registro por reconsulta: {confirm_error!r}")
                     report["status"] = "OK_NEEDS_CONFIRMATION"
+                    register_pending("ponto_nao_registrado", plan, "Falha na confirmação pós-registro.", repr(confirm_error))
 
             report["finished_at"] = datetime.now().isoformat(timespec="seconds")
             rep_path = write_report(report)
             log(f"Report JSON salvo em: {rep_path}")
+            final_plan = report.get("plan_after_register") or report.get("plan_after_wait") or report.get("plan") or {}
             append_journal({
-                "type": "execution",
+                "action": final_plan.get("action"),
                 "status": report.get("status"),
                 "target_time": horario_alvo_str,
+                "plannedTime": final_plan.get("next_due") or horario_alvo_str,
                 "dry_run": DRY_RUN,
-                "plan": report.get("plan_after_wait") or report.get("plan"),
+                "reason": final_plan.get("reason"),
+                "marksBefore": (report.get("plan_after_wait") or report.get("plan") or {}).get("marks"),
+                "marksAfter": final_plan.get("marks"),
+                "plan": final_plan,
                 "report": str(rep_path),
             })
             snapshot(page, "99_final", report)
@@ -786,8 +851,11 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
             rep_path = write_report(report)
             log(f"Erro EasyMOB: {e!r}")
             log(f"Report JSON salvo em: {rep_path}")
+            kind = "falha_modal" if "Modal" in repr(e) or "modal" in repr(e).lower() else "ponto_nao_registrado"
+            register_pending(kind, report.get("plan_after_wait") or report.get("plan"), "Falha na execução EasyMOB", repr(e))
+            update_state(easymob={"lastExecution": {"status": "failed", "finishedAt": datetime.now().isoformat(timespec="seconds"), "error": repr(e)}})
             append_journal({
-                "type": "execution",
+                "action": (report.get("plan_after_wait") or report.get("plan") or {}).get("action"),
                 "status": "failed",
                 "severity": "critical",
                 "target_time": horario_alvo_str if 'horario_alvo_str' in locals() else None,
