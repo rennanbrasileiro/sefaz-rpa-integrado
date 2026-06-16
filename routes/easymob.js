@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const stateStore = require('../lib/stateStore');
+const { buildDailyPlan, buildOperationalMode } = require('../lib/easymobDailyPlan');
 
 const router = express.Router();
 const ROOT = path.join(__dirname, '..');
@@ -44,6 +45,8 @@ function latestReport() {
 
 function safeEnvFromBody(body = {}) {
   const cfg = readJson(USER_CFG, {});
+  const operationalMode = buildOperationalMode({ ...cfg, ...body, easyRealApprovalUntil: body.easyRealApprovalUntil || cfg.easyRealApprovalUntil || body.confirmRealUntil });
+  const dryRun = !operationalMode.willWrite;
   const env = {
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
@@ -53,8 +56,10 @@ function safeEnvFromBody(body = {}) {
     EASYMOB_USERNAME: pick(body.easyUser, body.username, cfg.easyUser, process.env.EASYMOB_USERNAME),
     EASYMOB_PASSWORD: pick(body.easyPass, body.password, cfg.easyPass, process.env.EASYMOB_PASSWORD),
     EASYMOB_HEADLESS_DEFAULT: String(boolValue(body.headless, boolValue(cfg.easyHeadless, false))),
-    EASYMOB_DRY_RUN: String(boolValue(body.easyDryRun ?? body.dryRun, boolValue(cfg.easyDryRun ?? cfg.dryRun, true))),
-    EASYMOB_CONFIRM_REAL: String(boolValue(body.confirmReal, false)),
+    EASYMOB_DRY_RUN: String(dryRun),
+    EASYMOB_EXECUTION_MODE: operationalMode.executionMode,
+    EASYMOB_ENVIRONMENT_MODE: operationalMode.environmentMode,
+    EASYMOB_CONFIRM_REAL: String(operationalMode.willWrite && boolValue(body.confirmReal, false)),
     EASYMOB_CONFIRM_CUSTOM_TIME: String(boolValue(body.confirmCustomTime, false)),
     EASYMOB_HORARIOS: pick(body.easyTimes, body.times, cfg.easyTimes, process.env.EASYMOB_HORARIOS, '08:00,12:00,13:00,17:00'),
     EASYMOB_JANELA_RETRY_MINUTOS: pick(body.easyRetryMinutes, body.retryMinutes, cfg.easyRetryMinutes, process.env.EASYMOB_JANELA_RETRY_MINUTOS, '20'),
@@ -85,6 +90,31 @@ function pushLog(line) {
   process.stdout.write(line);
 }
 
+function marksFromReport(rep) {
+  const plans = [rep?.plan_after_register, rep?.plan_after_wait, rep?.plan].filter(Boolean);
+  for (const plan of plans) if (Array.isArray(plan.marks)) return plan.marks;
+  return [];
+}
+function configFromBody(body = {}) {
+  const cfg = readJson(USER_CFG, {});
+  return {
+    times: pick(body.easyTimes, body.times, cfg.easyTimes, process.env.EASYMOB_HORARIOS, '08:00,12:00,13:00,17:00'),
+    dailyTargetMinutes: pick(body.easyDailyTargetMinutes, cfg.easyDailyTargetMinutes, process.env.EASYMOB_DAILY_TARGET_MINUTES, '480'),
+    lunchMinutes: pick(body.easyLunchMinutes, cfg.easyLunchMinutes, process.env.EASYMOB_LUNCH_MINUTES, '60'),
+    duplicateToleranceMinutes: pick(body.easyDuplicateToleranceMinutes, body.duplicateToleranceMinutes, cfg.easyDuplicateToleranceMinutes, process.env.EASYMOB_DUPLICATE_TOLERANCE_MINUTES, '10'),
+    easyMode: pick(body.easyMode, body.mode, cfg.easyMode, process.env.EASYMOB_MODE, 'real'),
+    easyDryRun: boolValue(body.easyDryRun ?? body.dryRun, boolValue(cfg.easyDryRun ?? cfg.dryRun, true)),
+    easyRealApprovalUntil: pick(body.easyRealApprovalUntil, body.confirmRealUntil, cfg.easyRealApprovalUntil, ''),
+    easyRealApproval: boolValue(body.easyRealApproval ?? body.confirmReal, boolValue(cfg.easyRealApproval, false)),
+  };
+}
+function persistDailyPlan(dailyPlan, source = 'api') {
+  const dayEntry = stateStore.defaultDayEntry(dailyPlan.date);
+  const state = stateStore.readState();
+  const monthly = { ...(state.monthly || {}), days: { ...((state.monthly || {}).days || {}) } };
+  monthly.days[dailyPlan.date] = { ...dayEntry, ...(monthly.days[dailyPlan.date] || {}), date: dailyPlan.date, marks: dailyPlan.marks, planned: dailyPlan.nextDue, status: dailyPlan.status, pendencies: dailyPlan.blockingReason ? [dailyPlan.blockingReason] : [] };
+  stateStore.updateState({ monthly, easymob: { dailyPlan, operationalMode: dailyPlan.operationalMode, lastPlan: { ...(dailyPlan || {}), source }, marksToday: dailyPlan.marks || [], nextAction: dailyPlan.nextAction || null, plannedTime: dailyPlan.nextDue || null, dayStatus: dailyPlan.status, lastExecution: { status: 'plan_ready', source, finishedAt: new Date().toISOString() } } });
+}
 function spawnEasy(args = [], envAdd = {}) {
   if (easyStatus === 'running') throw new Error('EasyMOB já está em execução. Cancele ou aguarde finalizar.');
   ensureDirs();
@@ -95,7 +125,7 @@ function spawnEasy(args = [], envAdd = {}) {
   easyProc = spawn(pythonBin(), ['runner.py', ...args], { cwd: EASY_RPA, env });
   easyProc.stdout.on('data', d => pushLog(d.toString()));
   easyProc.stderr.on('data', d => pushLog('[ERR] ' + d.toString()));
-  easyProc.on('close', code => { easyStatus = code === 0 ? 'done' : 'error'; const rep = latestReport(); const plan = rep?.plan_after_register || rep?.plan_after_wait || rep?.plan || null; stateStore.updateState({ easymob: { marksToday: plan?.marks || [], nextAction: plan?.action || null, plannedTime: plan?.next_due || plan?.target_time || null, lastExecution: { status: easyStatus, finishedAt: new Date().toISOString(), reportStatus: rep?.status || null }, watchdog: { status: args.includes('--watchdog') ? easyStatus : 'idle' } } }); easyProc = null; });
+  easyProc.on('close', code => { easyStatus = code === 0 ? 'done' : 'error'; const rep = latestReport(); const plan = rep?.plan_after_register || rep?.plan_after_wait || rep?.plan || null; const op = buildOperationalMode({ easyMode: envAdd.EASYMOB_ENVIRONMENT_MODE || envAdd.EASYMOB_MODE, easyDryRun: envAdd.EASYMOB_DRY_RUN !== 'false', confirmReal: envAdd.EASYMOB_CONFIRM_REAL === 'true' }); const dailyPlan = buildDailyPlan({ marks: marksFromReport(rep), config: { ...configFromBody({}), easyDryRun: envAdd.EASYMOB_DRY_RUN !== 'false', easyMode: envAdd.EASYMOB_MODE }, operationalMode: op }); persistDailyPlan(dailyPlan, args.includes('--watchdog') ? 'watchdog' : 'runner'); stateStore.updateState({ easymob: { nextAction: dailyPlan.nextAction || plan?.action || null, plannedTime: dailyPlan.nextDue || plan?.next_due || plan?.target_time || null, lastExecution: { status: easyStatus, finishedAt: new Date().toISOString(), reportStatus: rep?.status || null, environmentMode: op.environmentMode, executionMode: op.executionMode, willWrite: op.willWrite }, watchdog: { status: args.includes('--watchdog') ? easyStatus : 'idle' } } }); stateStore.appendJournal({ module: 'easymob', action: 'daily_plan_updated', mode: op.executionMode, status: easyStatus, severity: code === 0 ? 'info' : 'warning', reason: dailyPlan.recommendation, marksBefore: dailyPlan.marks, calculatedTime: dailyPlan.nextDue, willWrite: op.willWrite, environmentMode: op.environmentMode }); easyProc = null; });
   return easyProc;
 }
 
@@ -127,6 +157,21 @@ router.get('/screenshot', (req, res) => {
   fs.createReadStream(LIVE_SHOT).pipe(res);
 });
 
+
+router.post('/daily-plan', (req, res) => {
+  try {
+    const cfg = configFromBody(req.body || {});
+    const state = stateStore.readState();
+    const rep = latestReport();
+    const marks = Array.isArray(req.body?.marks) ? req.body.marks : (marksFromReport(rep).length ? marksFromReport(rep) : (state.easymob?.marksToday || []));
+    const operationalMode = buildOperationalMode({ ...cfg, ...req.body });
+    const dailyPlan = buildDailyPlan({ marks, config: cfg, operationalMode });
+    persistDailyPlan(dailyPlan, req.body?.source || 'daily-plan');
+    stateStore.appendJournal({ module: 'easymob', action: 'daily_plan_calculated', mode: operationalMode.executionMode, status: dailyPlan.status, severity: dailyPlan.blockingReason ? 'warning' : 'info', reason: dailyPlan.recommendation, marksBefore: dailyPlan.marks, calculatedTime: dailyPlan.nextDue, willWrite: operationalMode.willWrite, environmentMode: operationalMode.environmentMode });
+    res.json({ ok: true, dailyPlan, operationalMode });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/test-login', (req, res) => {
   try {
     clearLogFile();
@@ -149,8 +194,10 @@ router.post('/run', (req, res) => {
   try {
     clearLogFile();
     const env = safeEnvFromBody(req.body);
+    const op = buildOperationalMode(req.body);
+    if (op.executionMode === 'real' && !op.willWrite) return res.status(403).json({ error: op.reason, operationalMode: op });
     spawnEasy(argsFromBody(req.body, 'run'), env);
-    res.json({ ok: true, message: boolValue(req.body.easyDryRun ?? req.body.dryRun, true) ? 'Execução em TESTE iniciada. Não grava ponto.' : 'Execução REAL iniciada após confirmação explícita.' });
+    res.json({ ok: true, operationalMode: op, message: op.willWrite ? 'Execução REAL iniciada após autorização diária; reconsulta antes/depois.' : 'Execução em TESTE iniciada. Não grava ponto.' });
   } catch (e) { easyStatus = 'error'; res.status(500).json({ error: e.message }); }
 });
 
@@ -169,7 +216,7 @@ router.post('/schedule', (req, res) => {
     singlePlan = {
       targetTime: target,
       scheduledFor: when.toISOString(),
-      mode: boolValue(payload.easyDryRun ?? payload.dryRun, true) ? 'TESTE / NÃO GRAVA' : 'REAL / PODE GRAVAR',
+      mode: buildOperationalMode(payload).willWrite ? 'REAL / GRAVA se plano permitir' : 'TESTE / NÃO GRAVA',
       behavior: 'No horário, o robô consultará as marcações do dia, calculará a próxima ação e só registrará se permitido pelas regras.',
       headless: boolValue(payload.headless, true),
       createdAt: new Date().toISOString(),

@@ -39,7 +39,7 @@ def default_state():
         "week": now.strftime("%G-W%V"),
         "month": now.strftime("%Y-%m"),
         "stale": False,
-        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "lastError": None, "lastPlan": None, "dayStatus": "sem_consulta", "routine": {"enabled": False, "dryRun": True, "times": [], "nextCheck": None, "waitingUntil": None, "confirmRealUntil": ""}, "watchdog": {"status": "idle"}},
+        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "lastError": None, "lastPlan": None, "dailyPlan": None, "operationalMode": None, "dayStatus": "sem_consulta", "routine": {"enabled": False, "dryRun": True, "times": [], "nextCheck": None, "waitingUntil": None, "confirmRealUntil": ""}, "watchdog": {"status": "idle"}},
         "service": {"lastStatus": "idle", "period": None, "summary": None},
         "portalRh": {"lastStatus": "idle", "period": None, "summary": None},
         "channel": {"lastStatus": "idle", "period": None, "blockingPendencies": []},
