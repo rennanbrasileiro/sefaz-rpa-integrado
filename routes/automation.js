@@ -243,14 +243,14 @@ function parseSchtasksList(stdout = '') {
 }
 function windowsSchedulerStatus(taskName = 'SEFAZ RPA EasyMOB Watchdog') {
   const command = `schtasks.exe /Query /TN \"${taskName}\" /FO LIST /V`;
-  const payload = { ok: process.platform === 'win32', taskName, installed: false, status: process.platform === 'win32' ? 'NotFound' : 'Unsupported', lastRunTime: '', lastResult: '', nextRunTime: '', stdout: '', stderr: process.platform === 'win32' ? '' : 'Disponível somente no Windows com schtasks.exe.', exitCode: process.platform === 'win32' ? null : -1, command, lastCheckedAt: new Date().toISOString() };
+  const payload = { ok: process.platform === 'win32', taskName, installed: false, status: process.platform === 'win32' ? 'NotFound' : 'Unsupported', lastRunTime: '', lastResult: '', nextRunTime: '', stdout: '', stderr: process.platform === 'win32' ? '' : 'Disponível somente no Windows com schtasks.exe.', exitCode: process.platform === 'win32' ? null : -1, command, workingDirectory: ROOT, missingPath: '', lastCheckedAt: new Date().toISOString() };
   if (process.platform !== 'win32') return payload;
   const result = spawnSync('schtasks.exe', ['/Query', '/TN', taskName, '/FO', 'LIST', '/V'], { encoding: 'utf-8' });
   payload.stdout = String(result.stdout || '').slice(0, 4000);
   payload.stderr = String(result.stderr || '').slice(0, 2000);
   payload.exitCode = result.status ?? 0;
   payload.installed = result.status === 0;
-  if (!payload.installed) { payload.ok = false; payload.status = 'NotFound'; return payload; }
+  if (!payload.installed) { payload.ok = false; payload.status = 'NotFound'; payload.missingPath = taskName; return payload; }
   const parsed = parseSchtasksList(result.stdout);
   payload.status = parsed.status || parsed['scheduled task state'] || 'Ready';
   payload.lastRunTime = parsed['last run time'] || '';
@@ -261,11 +261,11 @@ function windowsSchedulerStatus(taskName = 'SEFAZ RPA EasyMOB Watchdog') {
 }
 function schedulerScript(name) { return path.join(ROOT, 'scripts', name); }
 function runSchedulerScript(scriptName, args = []) {
-  if (process.platform !== 'win32') return { ok: false, status: 'unsupported_non_windows', message: 'Disponível em Windows via scripts/*.ps1 ou scripts/*.bat.' };
+  if (process.platform !== 'win32') return { ok: false, status: 'unsupported_non_windows', message: 'Disponível em Windows via scripts/*.ps1 ou scripts/*.bat.', stdout: '', stderr: 'Não é Windows.', exitCode: -1, command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${schedulerScript(scriptName)}\"`, workingDirectory: ROOT, taskName: 'SEFAZ RPA EasyMOB Watchdog' };
   const script = schedulerScript(scriptName);
-  if (!fs.existsSync(script)) return { ok: false, status: 'missing_script', message: `Script não encontrado: ${script}` };
+  if (!fs.existsSync(script)) return { ok: false, status: 'missing_script', message: `Script não encontrado: ${script}`, stdout: '', stderr: `Arquivo não encontrado: ${script}`, exitCode: -1, command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${script}\"`, workingDirectory: ROOT, missingPath: script, taskName: 'SEFAZ RPA EasyMOB Watchdog' };
   const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...args], { cwd: ROOT, encoding: 'utf-8' });
-  return { ok: result.status === 0, status: result.status === 0 ? 'success' : 'error', stdout: result.stdout, stderr: result.stderr, exitCode: result.status, command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${script}\"` };
+  return { ok: result.status === 0, status: result.status === 0 ? 'success' : 'error', stdout: result.stdout, stderr: result.stderr, exitCode: result.status, command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${script}\"`, workingDirectory: ROOT, missingPath: result.error?.path || '', taskName: 'SEFAZ RPA EasyMOB Watchdog' };
 }
 
 function pythonBin() { return process.env.EASYMOB_PYTHON || process.env.PYTHON || 'python'; }
@@ -435,12 +435,12 @@ function installSchedulerResponse() { const result = runSchedulerScript('install
 function removeSchedulerResponse() { const result = runSchedulerScript('uninstall_easymob_watchdog.ps1'); stateStore.appendJournal({ module: 'easymob', action: 'windows_scheduler_uninstall', status: result.ok ? 'success' : 'warning', severity: result.ok ? 'info' : 'warning', reason: result.message || result.stderr || 'Remoção solicitada pelo painel.' }); return result; }
 function testSchedulerResponse() {
   const taskName = 'SEFAZ RPA EasyMOB Watchdog';
-  if (process.platform !== 'win32') return { ok: false, installed: false, taskName, status: 'Unsupported', stdout: '', stderr: 'Teste disponível em Windows com schtasks.exe /Run.', exitCode: -1, command: `schtasks.exe /Run /TN \"${taskName}\"` };
+  if (process.platform !== 'win32') return { ok: false, installed: false, taskName, status: 'Unsupported', stdout: '', stderr: 'Teste disponível em Windows com schtasks.exe /Run.', exitCode: -1, command: `schtasks.exe /Run /TN \"${taskName}\"`, workingDirectory: ROOT, missingPath: 'schtasks.exe' };
   const command = `schtasks.exe /Run /TN \"${taskName}\"`;
   const result = spawnSync('schtasks.exe', ['/Run', '/TN', taskName], { encoding: 'utf-8' });
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
   const status = windowsSchedulerStatus(taskName);
-  const payload = { ...status, ok: result.status === 0, status: result.status === 0 ? status.status : 'Error', stdout: String(result.stdout || '') + (status.stdout ? `\n--- status ---\n${status.stdout}` : ''), stderr: result.stderr || status.stderr || '', exitCode: result.status ?? status.exitCode, command };
+  const payload = { ...status, ok: result.status === 0, status: result.status === 0 ? status.status : 'Error', stdout: String(result.stdout || '') + (status.stdout ? `\n--- status ---\n${status.stdout}` : ''), stderr: result.stderr || status.stderr || '', exitCode: result.status ?? status.exitCode, command, workingDirectory: ROOT, missingPath: result.error?.path || status.missingPath || '' };
   stateStore.appendJournal({ module: 'easymob', action: 'windows_scheduler_test', status: payload.ok ? 'started' : 'error', severity: payload.ok ? 'info' : 'warning', reason: payload.stderr || payload.stdout || 'Teste solicitado pelo painel.', command, exitCode: payload.exitCode });
   stateStore.updateState({ windowsScheduler: payload });
   return payload;
