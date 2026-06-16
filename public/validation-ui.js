@@ -2,7 +2,14 @@
 (function(){
   function byId(id){ return document.getElementById(id); }
   function esc(s){ return String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
-  function statusClass(status){ return status === 'ok' ? 'ok' : status === 'error' ? 'danger' : status === 'warn' ? 'warn' : ''; }
+  function statusClass(status){ return status === 'ok' ? 'ok' : status === 'error' ? 'danger' : status === 'warn' ? 'warn' : 'info'; }
+  function injectStyle(){
+    if(byId('validationStyle')) return;
+    const style=document.createElement('style');
+    style.id='validationStyle';
+    style.textContent='.validation-section{margin-top:16px}.validation-section h3{margin:0 0 10px;color:#cbd5e1;text-transform:uppercase;font-size:12px;letter-spacing:.08em}.validation-check{border:1px solid var(--line);background:#0b1018;border-radius:12px;padding:12px;margin-bottom:8px;display:grid;grid-template-columns:1fr auto;gap:6px 10px}.validation-check>b{color:var(--text)}.validation-check>span{font-family:var(--mono);font-size:11px;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:3px 8px;height:max-content}.validation-check>p{grid-column:1/-1;margin:0;color:#cbd5e1;line-height:1.45}.validation-check>small{grid-column:1/-1;color:var(--muted);line-height:1.45}.validation-check.ok{border-color:rgba(22,209,154,.35)}.validation-check.ok>span{color:#a7f3d0;border-color:rgba(22,209,154,.35)}.validation-check.warn{border-color:rgba(245,158,11,.42)}.validation-check.warn>span{color:#fde68a;border-color:rgba(245,158,11,.42)}.validation-check.danger{border-color:rgba(239,68,68,.45)}.validation-check.danger>span{color:#fecaca;border-color:rgba(239,68,68,.45)}.validation-check.info>span{color:#bfdbfe;border-color:rgba(96,165,250,.35)}';
+    document.head.appendChild(style);
+  }
   async function getValidation(){
     const r = await fetch('/api/validation', { headers:{'Content-Type':'application/json'} });
     const j = await r.json();
@@ -10,6 +17,7 @@
     return j;
   }
   function ensurePanel(){
+    injectStyle();
     const diag = byId('panel-diagnostic');
     if(!diag || byId('validationPanel')) return;
     const card = document.createElement('div');
