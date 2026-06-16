@@ -3,7 +3,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const { buildEnvContent, buildScheduleCsv } = require('../lib/envBuilder');
 const { PROJECTS } = require('../lib/config');
@@ -231,6 +231,25 @@ function easyRoutineState(cfg) {
     mode: easy.dryRun === false ? 'real' : 'teste',
   };
 }
+
+function windowsSchedulerStatus(taskName = 'SEFAZ RPA EasyMOB Watchdog') {
+  const payload = { taskName, installed: false, status: process.platform === 'win32' ? 'not_installed' : 'unsupported_non_windows', lastCheckedAt: new Date().toISOString() };
+  if (process.platform !== 'win32') return payload;
+  const result = spawnSync('schtasks.exe', ['/Query', '/TN', taskName, '/FO', 'LIST'], { encoding: 'utf-8' });
+  payload.installed = result.status === 0;
+  payload.status = result.status === 0 ? 'installed' : 'not_installed';
+  payload.raw = result.status === 0 ? String(result.stdout || '').slice(0, 2000) : String(result.stderr || result.stdout || '').slice(0, 1000);
+  return payload;
+}
+function schedulerScript(name) { return path.join(ROOT, 'scripts', name); }
+function runSchedulerScript(scriptName, args = []) {
+  if (process.platform !== 'win32') return { ok: false, status: 'unsupported_non_windows', message: 'Disponível em Windows via scripts/*.ps1 ou scripts/*.bat.' };
+  const script = schedulerScript(scriptName);
+  if (!fs.existsSync(script)) return { ok: false, status: 'missing_script', message: `Script não encontrado: ${script}` };
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...args], { cwd: ROOT, encoding: 'utf-8' });
+  return { ok: result.status === 0, status: result.status === 0 ? 'success' : 'error', stdout: result.stdout, stderr: result.stderr, code: result.status };
+}
+
 function pythonBin() { return process.env.EASYMOB_PYTHON || process.env.PYTHON || 'python'; }
 
 function spawnTracked(command, args, opts, label) {
@@ -387,6 +406,12 @@ router.get('/log', (_req, res) => {
 });
 router.get('/config', (_req, res) => res.json({ ok: true, config: loadConfig() }));
 router.post('/config', (req, res) => { const incoming = req.body || {}; if (incoming.easyMob?.dryRun === false && !approvalValid(incoming.easyMob?.confirmRealUntil)) { incoming.easyMob.confirmReal = false; incoming.easyMob.approvalDaily = false; } saveConfig(incoming); const cfg = loadConfig(); const routine = easyRoutineState(cfg); stateStore.updateState({ easymob: { routine } }); stateStore.appendJournal({ module: 'easymob', action: 'rotina_configurada', mode: cfg.easyMob?.dryRun === false ? 'real' : 'teste', status: 'success', severity: 'info', reason: routine.confirmReal ? 'Rotina REAL configurada com autorização diária válida.' : 'Configuração da rotina diária salva.' }); res.json({ ok: true, config: cfg, routine }); });
+router.post('/approval/authorize', (req, res) => { const cfg = loadConfig(); const until = req.body?.until || (() => { const d = new Date(); d.setHours(23,59,59,999); return d.toISOString(); })(); cfg.easyMob = { ...(cfg.easyMob || {}), confirmReal: true, approvalDaily: true, confirmRealUntil: until }; saveConfig(cfg); const routine = easyRoutineState(loadConfig()); stateStore.updateState({ easymob: { routine, lastError: null } }); stateStore.appendJournal({ module: 'easymob', action: 'aprovacao_real_autorizada', mode: 'real', status: 'success', severity: 'warning', reason: `Autorização REAL válida até ${until}.` }); res.json({ ok: true, routine, validUntil: until }); });
+router.post('/approval/revoke', (_req, res) => { const cfg = loadConfig(); cfg.easyMob = { ...(cfg.easyMob || {}), confirmReal: false, approvalDaily: false, confirmRealUntil: '' }; saveConfig(cfg); const routine = easyRoutineState(loadConfig()); stateStore.updateState({ easymob: { routine, lastError: 'REAL bloqueado: autorização diária revogada.' } }); stateStore.appendJournal({ module: 'easymob', action: 'aprovacao_real_revogada', mode: 'real', status: 'revoked', severity: 'info', reason: 'Autorização REAL diária revogada pelo usuário.' }); res.json({ ok: true, routine }); });
+router.get('/scheduler/status', (_req, res) => { const status = windowsSchedulerStatus(); stateStore.updateState({ windowsScheduler: status }); res.json({ ok: true, ...status, scripts: { runBat: 'scripts/run_easymob_watchdog.bat', runPs1: 'scripts/run_easymob_watchdog.ps1', installPs1: 'scripts/install_easymob_watchdog.ps1', uninstallPs1: 'scripts/uninstall_easymob_watchdog.ps1', serverBat: 'scripts/run_server.bat', serverInstallPs1: 'scripts/install_server_startup.ps1' } }); });
+router.post('/scheduler/install', (_req, res) => res.json(runSchedulerScript('install_easymob_watchdog.ps1')));
+router.post('/scheduler/remove', (_req, res) => res.json(runSchedulerScript('uninstall_easymob_watchdog.ps1')));
+router.post('/scheduler/test', (_req, res) => { if (process.platform !== 'win32') return res.json({ ok: false, status: 'unsupported_non_windows', message: 'Teste disponível em Windows com schtasks.exe /Run.' }); const result = spawnSync('schtasks.exe', ['/Run', '/TN', 'SEFAZ RPA EasyMOB Watchdog'], { encoding: 'utf-8' }); res.json({ ok: result.status === 0, status: result.status === 0 ? 'started' : 'error', stdout: result.stdout, stderr: result.stderr }); });
 router.post('/start', (_req, res) => { startScheduler(); res.json({ ok: true, running }); });
 router.post('/stop', (_req, res) => { stopScheduler(); res.json({ ok: true, running }); });
 router.post('/run-now', (req, res) => {

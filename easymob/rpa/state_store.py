@@ -26,17 +26,25 @@ def _read_json(path, fallback):
     return fallback
 
 
+def _default_day_entry(date):
+    return {"date": date, "marks": [], "planned": None, "realized": None, "estimatedBalance": None, "status": "sem_consulta", "serviceReflected": False, "portalRhReflected": False, "channelPosted": False, "pendencies": [], "needsAdjustment": False}
+
+
 def default_state():
     now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
     return {
         "updatedAt": _now(),
-        "today": now.strftime("%Y-%m-%d"),
+        "today": today,
         "week": now.strftime("%G-W%V"),
         "month": now.strftime("%Y-%m"),
-        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "lastError": None, "routine": {"enabled": False, "dryRun": True, "times": [], "nextCheck": None, "waitingUntil": None}, "watchdog": {"status": "idle"}},
+        "stale": False,
+        "easymob": {"marksToday": [], "nextAction": None, "plannedTime": None, "lastExecution": None, "lastError": None, "lastPlan": None, "dayStatus": "sem_consulta", "routine": {"enabled": False, "dryRun": True, "times": [], "nextCheck": None, "waitingUntil": None, "confirmRealUntil": ""}, "watchdog": {"status": "idle"}},
         "service": {"lastStatus": "idle", "period": None, "summary": None},
         "portalRh": {"lastStatus": "idle", "period": None, "summary": None},
         "channel": {"lastStatus": "idle", "period": None, "blockingPendencies": []},
+        "monthly": {"days": {today: _default_day_entry(today)}, "updatedAt": _now()},
+        "windowsScheduler": {"installed": False, "status": "unknown", "taskName": "SEFAZ RPA EasyMOB Watchdog", "lastCheckedAt": None},
         "pending": [],
     }
 
@@ -45,6 +53,23 @@ def read_state():
     _ensure()
     state = default_state()
     state.update(_read_json(STATE_PATH, {}))
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    stale = state.get("today") != today
+    state["today"] = today
+    state["week"] = now.strftime("%G-W%V")
+    state["month"] = now.strftime("%Y-%m")
+    state.setdefault("monthly", {"days": {}, "updatedAt": _now()})
+    state["monthly"].setdefault("days", {})
+    state["monthly"]["days"].setdefault(today, _default_day_entry(today))
+    if stale:
+        previous = state.get("easymob") or {}
+        state["stale"] = True
+        state["staleReason"] = f"Estado operacional reiniciado para {today}; histórico anterior permanece no journal."
+        state["easymob"] = default_state()["easymob"]
+        state["easymob"]["routine"] = previous.get("routine", state["easymob"]["routine"])
+        state["easymob"]["watchdog"] = {"status": "stale_new_day"}
+        state["easymob"]["lastError"] = "Estado antigo ocultado: faça consulta EasyMOB de hoje."
     return state
 
 

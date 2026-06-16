@@ -9,14 +9,19 @@ const app = express();
 const PORT = process.env.PORT || 3131;
 const ROOT = __dirname;
 
+function openDetached(command, args) {
+  try {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  } catch (_) {}
+}
 function openUrl(url) {
   if (String(process.env.AUTO_OPEN_UI || 'true').toLowerCase() === 'false') return;
-  try {
-    const platform = process.platform;
-    if (platform === 'win32') spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
-    else if (platform === 'darwin') spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
-    else spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
-  } catch (_) {}
+  const platform = process.platform;
+  if (platform === 'win32') openDetached('cmd', ['/c', 'start', '', url]);
+  else if (platform === 'darwin') openDetached('open', [url]);
+  else openDetached('xdg-open', [url]);
 }
 
 app.use(cors());

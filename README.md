@@ -107,3 +107,28 @@ Leia nesta ordem:
 6. `docs/04_CONTRATOS_MODULOS.md`
 7. `docs/05_CRITERIOS_ACEITE.md`
 
+
+## Operação diária EasyMOB e Windows
+
+1. Abra `http://localhost:3131` e confira **EasyMOB > Status de hoje**. Se o estado for de outro dia, o painel oculta o plano antigo e pede uma nova consulta.
+2. Deixe **Modo padrão = TESTE / NÃO GRAVA** para validar. TESTE nunca registra ponto.
+3. Para REAL, use **Aprovação REAL diária > Autorizar REAL hoje**. A autorização expira às 23:59 e pode ser revogada pelo painel.
+4. Clique **Ativar rotina**. Os horários configurados são apenas conferências; o plano calculado pelas marcações reais decide o horário de ação.
+5. Para iniciar o servidor com o Windows, use `scripts\install_server_startup.ps1`. Se PowerShell for bloqueado, use `scripts\run_server.bat` no Inicializar do Windows.
+6. Para watchdog no Agendador de Tarefas, use `scripts\install_easymob_watchdog.ps1`; para ambiente restrito, use `scripts\run_easymob_watchdog.bat`.
+
+Comandos úteis:
+
+```powershell
+# servidor ao logar no Windows
+.\scripts\install_server_startup.ps1
+
+# watchdog recorrente no Agendador de Tarefas
+.\scripts\install_easymob_watchdog.ps1
+
+# testar manualmente sem PowerShell
+.\scripts\run_server.bat
+.\scripts\run_easymob_watchdog.bat
+```
+
+O painel **Orquestrador > Windows** mostra o caminho dos scripts, status do agendador quando estiver em Windows e botões de verificar/instalar/testar/remover a tarefa do watchdog.
