@@ -28,6 +28,7 @@ app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
+app.use('/api/validation', require('./routes/validation'));
 app.use('/api', require('./routes/api'));
 
 // Screenshot ao vivo compartilhado pelos módulos Playwright em Node.
