@@ -192,6 +192,7 @@ function buildScheduleCsvForRpa(cfg = {}) {
 
 router.get('/health', (req, res) => res.json({ ok: true, app: 'SEFAZ RPA Integrado', modules: ['channel', 'service', 'portalrh', 'easymob'] }));
 router.get('/state', (_req, res) => res.json({ ok: true, state: stateStore.readState(), pending: stateStore.readPending(), journal: stateStore.readJournal(40) }));
+router.post('/state/pending/:id/resolve', (req, res) => { const item = stateStore.resolvePending(req.params.id, req.body?.resolution || 'Resolvida pelo operador'); if (!item) return res.status(404).json({ error: 'Pendência não encontrada.' }); res.json({ ok: true, item, pending: stateStore.readPending() }); });
 
 // ═══ CATÁLOGO ═══════════════════════════════════════════════
 router.get('/catalog', (req, res) => {

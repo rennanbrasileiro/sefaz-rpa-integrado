@@ -132,3 +132,12 @@ Comandos úteis:
 ```
 
 O painel **Orquestrador > Windows** mostra o caminho dos scripts, status do agendador quando estiver em Windows e botões de verificar/instalar/testar/remover a tarefa do watchdog.
+
+Endpoints de agendamento expostos pelo painel:
+
+- `GET /api/automation/windows/status`
+- `POST /api/automation/windows/install`
+- `POST /api/automation/windows/test`
+- `POST /api/automation/windows/uninstall`
+
+Os endpoints antigos `/api/automation/scheduler/*` continuam existindo por compatibilidade.
