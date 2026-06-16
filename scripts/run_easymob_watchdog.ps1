@@ -1,34 +1,33 @@
 param(
-  [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path
+  [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 )
 
 $ErrorActionPreference = "Stop"
-# Política restrita: se o PowerShell corporativo bloquear scripts, use:
-#   scripts\run_easymob_watchdog.bat
-# ou execute diretamente: cd easymob\rpa && python runner.py --watchdog --headless
-Set-Location $ProjectRoot
+$ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+$rpaDir = Join-Path $ProjectRoot "easymob\rpa"
+$runner = Join-Path $rpaDir "runner.py"
+Write-Host "[EasyMOB Watchdog] ProjectRoot=`"$ProjectRoot`""
+Write-Host "[EasyMOB Watchdog] WorkingDirectory=`"$rpaDir`""
+if (-not (Test-Path -LiteralPath $runner)) { throw "Arquivo não encontrado: $runner" }
+Set-Location -LiteralPath $ProjectRoot
 
-# Carrega .env simples, sem dependência externa. Variáveis já existentes prevalecem.
 $envPath = Join-Path $ProjectRoot ".env"
-if (Test-Path $envPath) {
-  Get-Content $envPath | ForEach-Object {
+if (Test-Path -LiteralPath $envPath) {
+  Get-Content -LiteralPath $envPath | ForEach-Object {
     $line = $_.Trim()
     if ($line -eq "" -or $line.StartsWith("#") -or -not $line.Contains("=")) { return }
     $idx = $line.IndexOf("=")
     $name = $line.Substring(0, $idx).Trim()
     $value = $line.Substring($idx + 1).Trim().Trim('"')
-    if (-not [Environment]::GetEnvironmentVariable($name, "Process")) {
-      [Environment]::SetEnvironmentVariable($name, $value, "Process")
-    }
+    if (-not [Environment]::GetEnvironmentVariable($name, "Process")) { [Environment]::SetEnvironmentVariable($name, $value, "Process") }
   }
 }
 
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-$env:EASYMOB_WATCHDOG_ENABLED = if ($env:EASYMOB_WATCHDOG_ENABLED) { $env:EASYMOB_WATCHDOG_ENABLED } else { "true" }
-
+if (-not $env:EASYMOB_WATCHDOG_ENABLED) { $env:EASYMOB_WATCHDOG_ENABLED = "true" }
 $python = if ($env:EASYMOB_PYTHON) { $env:EASYMOB_PYTHON } elseif ($env:PYTHON) { $env:PYTHON } else { "python" }
-$rpaDir = Join-Path $ProjectRoot "easymob\rpa"
-Set-Location $rpaDir
+Set-Location -LiteralPath $rpaDir
+Write-Host "[EasyMOB Watchdog] Command=`"$python`" `"runner.py`" `"--watchdog`" `"--headless`""
 & $python "runner.py" "--watchdog" "--headless"
 exit $LASTEXITCODE

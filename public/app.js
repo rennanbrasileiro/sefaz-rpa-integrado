@@ -58,8 +58,8 @@ function config(){ return {
   projects, useTimeRange:false, dryRun:true, dateSource:val('dateSource')||'range', startDate:val('startDate'), endDate:val('endDate'), weekdaysOnly:true,
   scheduleRows: parseScheduleText()
 };}
-function applyConfig(c={}){ ['user','pass','chromePath','tz','serviceUser','servicePass','rhUser','rhPass','portalRhUrl','portalRhReportUrl','easyMode','easySiteLogin','easyAccessKey','easyUser','easyPass','easySlowmo','easyTimes','easyDailyTargetMinutes','easyLunchMinutes','easyDuplicateToleranceMinutes','easyRetryMinutes','easyScreenshotPolicy','easyKeepLastScreenshots','easyBtnLogin','easyBtnRegister','easyBtnConsult','dateSource','startDate','endDate'].forEach(k=>set(k,c[k])); set('easyDryRun',String(c.easyDryRun!==false)); set('easyHeadless',String(c.easyHeadless!==true?false:true)); set('easyRealApproval',String(isApprovalValid(c.easyRealApprovalUntil))); set('easyApprovalStatus',approvalSummary(c.easyRealApprovalUntil)); set('easyLivePreview',String(c.easyLivePreview===true)); set('easyKeepBrowserOpen',String(c.easyKeepBrowserOpen===true)); projects=Array.isArray(c.projects)?c.projects:[]; renderProjects(); }
-async function saveAll(){ const c=config(); localStorage.setItem('sefazRpaCfg110',JSON.stringify(c)); await api('/config/save',{method:'POST',body:JSON.stringify(c)}); set('easyApprovalStatus',approvalSummary(c.easyRealApprovalUntil)); toast('Configuração salva.'); }
+function applyConfig(c={}){ ['user','pass','chromePath','tz','serviceUser','servicePass','rhUser','rhPass','portalRhUrl','portalRhReportUrl','easyMode','easySiteLogin','easyAccessKey','easyUser','easyPass','easySlowmo','easyTimes','easyDailyTargetMinutes','easyLunchMinutes','easyDuplicateToleranceMinutes','easyRetryMinutes','easyScreenshotPolicy','easyKeepLastScreenshots','easyBtnLogin','easyBtnRegister','easyBtnConsult','dateSource','startDate','endDate'].forEach(k=>set(k,c[k])); set('easyDryRun',String(c.easyDryRun!==false)); set('easyHeadless',String(c.easyHeadless!==true?false:true)); set('easyRealApproval',String(isApprovalValid(c.easyRealApprovalUntil))); set('easyApprovalStatus',approvalSummary(c.easyRealApprovalUntil)); set('easyRoutineApproval',approvalSummary(c.easyRealApprovalUntil)); set('easyLivePreview',String(c.easyLivePreview===true)); set('easyKeepBrowserOpen',String(c.easyKeepBrowserOpen===true)); projects=Array.isArray(c.projects)?c.projects:[]; renderProjects(); }
+async function saveAll(){ const c=config(); localStorage.setItem('sefazRpaCfg110',JSON.stringify(c)); await api('/config/save',{method:'POST',body:JSON.stringify(c)}); set('easyApprovalStatus',approvalSummary(c.easyRealApprovalUntil)); set('easyRoutineApproval',approvalSummary(c.easyRealApprovalUntil)); toast('Configuração salva.'); }
 async function loadAll(){ let c=null; try{ const r=await api('/config/load'); c=r.config; }catch{} if(!c) c=JSON.parse(localStorage.getItem('sefazRpaCfg110')||'null'); if(c) applyConfig(c); }
 function renderProjectSelect(){ const s=$('projectSelect'); if(!s)return; s.innerHTML='<option value="">Selecione projeto</option>'+catalog.projects.map(p=>`<option value="${p.value}">${p.value} — ${p.label}</option>`).join(''); }
 function addProject(){ const pv=val('projectSelect'); if(!pv)return; if(projects.some(p=>String(p.value)===pv))return; const found=catalog.projects.find(p=>String(p.value)===pv)||{value:pv,label:pv}; projects.push({ value:found.value, label:found.label, activityValue:'35', duracao:'02:40', horaInicio:'08:00', horaFim:'10:00', comentario: catalog.defaultComentario || 'Atividades de gestão, acompanhamento e facilitação.' }); renderProjects(); }
@@ -111,16 +111,20 @@ function modeHtml(op={}){
   if(!op) return '<span class="muted">Modo não calculado</span>';
   const env = op.environmentMode === 'simulated' ? badge('AMBIENTE SIMULADO','warn') : badge('AMBIENTE REAL','');
   const exec = op.executionMode === 'real' ? badge('EXECUÇÃO REAL','danger') : badge('EXECUÇÃO TESTE','ok');
-  const write = op.willWrite ? badge('GRAVA','danger') : badge('NÃO GRAVA','ok');
+  const write = op.willWrite ? badge('GRAVA SIM','danger') : badge('GRAVA NÃO','ok');
   const appr = op.realApproval?.status === 'authorized' ? badge('AUTORIZADO','ok') : badge('BLOQUEADO','warn');
   return `<div class="mode-row">${env}${exec}${write}${appr}</div><p class="muted compact">${op.reason||''}</p>`;
 }
 function dailyPlanHtml(plan){
   if(!plan) return '<div class="alert warn">Plano diário ainda não calculado.</div>';
   const labels={entrada:'Entrada',saida_almoco:'Saída almoço',retorno_almoco:'Retorno almoço',saida_final:'Saída final'};
-  const statusLabel={done:'feito',ready:'pronto',pending:'pendente',future:'futuro',blocked:'bloqueado'};
-  const steps=(plan.timeline||[]).map(st=>`<div class="timeline-step ${st.status||''}"><div class="step-dot"></div><div><b>${labels[st.key]||st.key}</b><small>Ref. ${st.referenceTime||'--'} · Calc. ${st.calculatedTime||'--'}</small><span>${st.actualMark||statusLabel[st.status]||st.status}</span><p>${st.reason||''}</p>${st.canExecute?'<em>ação atual</em>':''}</div></div>`).join('');
-  return `<div class="daily-plan"><div class="metric-row"><div><span>Status</span><b>${plan.status||'--'}</b></div><div><span>Próxima ação</span><b>${plan.nextAction||'--'}</b></div><div><span>Horário calculado</span><b>${plan.nextDue||'--'}</b></div><div><span>Marcações</span><b>${(plan.marks||[]).length}</b></div></div>${modeHtml(plan.operationalMode)}<div class="timeline">${steps}</div>${plan.blockingReason?`<div class="alert danger">${plan.blockingReason}</div>`:`<div class="alert ok">${plan.recommendation||'Plano diário pronto.'}</div>`}</div>`;
+  const statusLabel={done:'feito',ready:'pendente',pendente:'pendente',pending:'aguardando',future:'futuro',blocked:'bloqueado',completed:'concluído'};
+  const steps=(plan.timeline||[]).map(st=>{
+    const raw=st.rawStatus||st.status;
+    const status=statusLabel[st.status]||statusLabel[raw]||st.status||'--';
+    return `<div class="timeline-step ${raw||st.status||''}"><div class="step-dot"></div><div><b>${labels[st.key]||st.key}</b><small>Referência ${st.referenceTime||'--'} · calculado ${st.calculatedTime||'--'} · marcação real ${st.actualMark||'--'}</small><span>Status: ${status}</span><p>${st.reason||''}</p><p><b>Pode executar agora:</b> ${st.canExecute?'SIM':'NÃO'} · <b>Vai gravar:</b> ${st.willWrite?'SIM':'NÃO'}</p>${st.canExecute?'<em>próxima ação atual</em>':''}</div></div>`;
+  }).join('');
+  return `<div class="daily-plan"><div class="metric-row"><div><span>Status do dia</span><b>${plan.status||'--'}</b></div><div><span>Próxima ação</span><b>${plan.nextAction||'--'}</b></div><div><span>Horário calculado</span><b>${plan.nextDue||'--'}</b></div><div><span>Marcações reais</span><b>${(plan.marks||[]).join(' · ')||'--'}</b></div></div>${modeHtml(plan.operationalMode)}<div class="timeline">${steps}</div>${plan.blockingReason?`<div class="alert danger">${plan.blockingReason}</div>`:`<div class="alert ok">${plan.recommendation||'Plano diário pronto.'}</div>`}</div>`;
 }
 
 function readableLog(payload){
@@ -160,15 +164,53 @@ async function channelCancel(){ await api('/cancel',{method:'POST'}); refreshLog
 async function easyAuthorizeRealToday(){ const ok=await askConfirm('Autorizar execução REAL automática até 23:59 de hoje? TESTE continua sem gravar; REAL só age se o plano permitir.',{title:'Autorizar REAL hoje',ok:'Autorizar hoje'}); if(!ok)return; setBusy('easyApprovalBox',true); try{ const r=await api('/automation/approval/authorize',{method:'POST',body:JSON.stringify({until:endOfTodayIso()})}); set('easyRealApproval','true'); set('easyApprovalStatus',approvalSummary(r.validUntil)); toast('REAL autorizado até 23:59 de hoje.','warn'); await refreshCentralState(); filterLogs(); }catch(e){ toast('Erro ao autorizar REAL: '+e.message,'danger'); } finally{ setBusy('easyApprovalBox',false); } }
 async function easyRevokeReal(){ const ok=await askConfirm('Revogar autorização REAL de hoje? A rotina continuará em TESTE ou ficará bloqueada para gravação real.',{title:'Revogar autorização REAL',ok:'Revogar'}); if(!ok)return; try{ await api('/automation/approval/revoke',{method:'POST'}); set('easyRealApproval','false'); set('easyApprovalStatus','REAL não autorizado hoje'); toast('Autorização REAL revogada.'); await refreshCentralState(); filterLogs(); }catch(e){ toast('Erro ao revogar REAL: '+e.message,'danger'); } }
 function scriptListHtml(scripts={}){ return `<div class="script-list">${Object.entries(scripts).map(([k,v])=>`<span><b>${k}</b><code>${v}</code></span>`).join('')}</div>`; }
-async function refreshScheduler(){ setBusy('schedulerStatus',true); try{ const r=await api('/automation/windows/status'); if($('schedulerBadge')) $('schedulerBadge').textContent=r.installed?'instalado':r.status; if($('schedulerStatus')) $('schedulerStatus').innerHTML=`<div class="metric-row"><div><span>Tarefa</span><b>${r.taskName||'--'}</b></div><div><span>Status</span><b>${r.status||'--'}</b></div><div><span>Instalada</span><b>${r.installed?'Sim':'Não'}</b></div><div><span>Próximo disparo</span><b>${r.nextRunTime||'--'}</b></div></div><div class="hint">Último resultado: ${r.lastResult||'--'} · PowerShell restrito: use os .bat.</div><pre class="mini-log">${(r.stderr||r.stdout||r.command||'').slice(0,1200)}</pre>${scriptListHtml(r.scripts||{})}`; }catch(e){ if($('schedulerStatus')) $('schedulerStatus').innerHTML=`<div class="alert danger">${e.message}</div>`; } finally{ setBusy('schedulerStatus',false); } }
+async function refreshScheduler(){ setBusy('schedulerStatus',true); try{ const r=await api('/automation/windows/status'); if($('schedulerBadge')) $('schedulerBadge').textContent=r.installed?'instalado':r.status; if($('schedulerStatus')) $('schedulerStatus').innerHTML=`<div class="metric-row"><div><span>Tarefa</span><b>${r.taskName||'--'}</b></div><div><span>Status</span><b>${r.status||'--'}</b></div><div><span>Instalada</span><b>${r.installed?'Sim':'Não'}</b></div><div><span>ExitCode</span><b>${r.exitCode??'--'}</b></div></div><div class="metric-row"><div><span>Próximo disparo</span><b>${r.nextRunTime||'--'}</b></div><div><span>Working directory</span><b>${r.workingDirectory||'--'}</b></div><div><span>Caminho ausente</span><b>${r.missingPath||'--'}</b></div><div><span>Último resultado</span><b>${r.lastResult||'--'}</b></div></div><div class="hint"><b>Comando:</b> <code>${r.command||'--'}</code></div><div class="grid"><div><label>stdout</label><pre class="mini-log">${String(r.stdout||'').slice(0,2000)||'--'}</pre></div><div><label>stderr</label><pre class="mini-log">${String(r.stderr||'').slice(0,2000)||'--'}</pre></div></div>${scriptListHtml(r.scripts||{})}`; }catch(e){ if($('schedulerStatus')) $('schedulerStatus').innerHTML=`<div class="alert danger">${e.message}</div>`; } finally{ setBusy('schedulerStatus',false); } }
 async function installScheduler(){ setBusy('schedulerStatus',true); const r=await api('/automation/windows/install',{method:'POST'}); toast(r.ok?'Tarefa instalada.':(r.message||'Instalação indisponível neste ambiente'), r.ok?'ok':'warn'); await refreshScheduler(); }
 async function removeScheduler(){ setBusy('schedulerStatus',true); const r=await api('/automation/windows/uninstall',{method:'POST'}); toast(r.ok?'Tarefa removida.':(r.message||'Remoção indisponível neste ambiente'), r.ok?'ok':'warn'); await refreshScheduler(); }
 async function testScheduler(){ setBusy('schedulerStatus',true); const r=await api('/automation/windows/test',{method:'POST'}); toast(r.ok?'Teste iniciado.':(r.message||'Teste indisponível neste ambiente'), r.ok?'ok':'warn'); await refreshScheduler(); }
 async function resolvePending(id){ const ok=await askConfirm('Marcar esta pendência como resolvida?',{title:'Resolver pendência',ok:'Resolver',danger:false}); if(!ok)return; await api(`/state/pending/${id}/resolve`,{method:'POST',body:JSON.stringify({resolution:'Resolvida pelo painel operacional.'})}); toast('Pendência marcada como resolvida.'); await refreshCentralState(); filterLogs(); }
+
+async function easySaveRoutine(){
+  await saveAll();
+  const wantReal = val('easyRoutineMode') === 'real';
+  const approvalUntil = bool('easyRealApproval') ? endOfTodayIso() : '';
+  if(wantReal && !isApprovalValid(approvalUntil)){
+    toast('Rotina REAL bloqueada: autorize REAL hoje antes de salvar em REAL.', 'danger');
+    return null;
+  }
+  const cfg={
+    enabled:bool('autoEnabled'),
+    checkEverySeconds:Number(val('autoInterval')||30),
+    easyMob:{
+      enabled:true,
+      mode:val('easyMode')||'real',
+      times:splitCsv(val('easyTimes')),
+      windowMinutes:Number(val('easyRetryMinutes')||20),
+      duplicateToleranceMinutes:Number(val('easyDuplicateToleranceMinutes')||10),
+      dryRun:!wantReal,
+      confirmReal:wantReal,
+      confirmRealUntil:wantReal?approvalUntil:'',
+      approvalDaily:wantReal,
+      headless:bool('easyHeadless'),
+      slowmo:Number(val('easySlowmo')||700),
+      businessDaysOnly:true,
+      watchdog:true
+    },
+    channel:{enabled:bool('autoChannel'), dryRun:true}
+  };
+  const r=await api('/automation/config',{method:'POST',body:JSON.stringify(cfg)});
+  set('easyDryRun', String(!wantReal));
+  toast(wantReal?'Rotina salva em REAL autorizada.':'Rotina salva em TESTE / NÃO GRAVA.');
+  await refreshCentralState();
+  return r;
+}
 async function easyEnableDayRoutine(){
   await saveAll();
-  const dryRun = bool('easyDryRun');
-  let confirmReal = false;
+  const wantReal = val('easyRoutineMode') === 'real';
+  const saved = await easySaveRoutine();
+  if(!saved) return;
+  const dryRun = !wantReal;
+  let confirmReal = wantReal;
   const approvalUntil = bool('easyRealApproval') ? endOfTodayIso() : '';
   if(!dryRun){
     if(!isApprovalValid(approvalUntil)){ toast('REAL bloqueado: selecione Autorização REAL hoje em Configurações > EasyMOB.', 'danger'); return; }
@@ -247,6 +289,7 @@ function renderEasyMobState(state = {}, easyPending = []){
   const dayDone = marks.length >= 4;
   const origin = plan.source || last.source || watchdog.source || 'estado central';
   if($('easyTodaySummary')) $('easyTodaySummary').innerHTML = `<div class="metric-row"><div><span>Data</span><b>${currentDay()}</b></div><div><span>Marcações</span><b>${marks.length}</b></div><div><span>Status</span><b>${stale?'estado novo':(dayDone?'dia concluído':(e.dayStatus||plan.status||'em acompanhamento'))}</b></div><div><span>Horário</span><b>${dayDone?'--':(e.plannedTime || plan.next_due || '--')}</b></div></div><div class="marks-line">${stale ? 'Plano antigo ocultado. Consulte o EasyMOB para carregar o dia atual.' : (marks.join(' · ') || 'Nenhuma marcação de hoje carregada.')}</div>`;
+  if($('easyRoutineMode')) set('easyRoutineMode', routine.dryRun===false?'real':'test'); if($('easyRoutineApproval')) set('easyRoutineApproval', approval);
   if($('easyAutomationBox')) $('easyAutomationBox').innerHTML = `<div class="metric-row"><div><span>Rotina</span><b>${routine.enabled ? 'Ativa' : 'Parada'}</b></div><div><span>Modo</span><b>${mode}</b></div><div><span>Referências</span><b>${(routine.times || []).join(', ') || val('easyTimes') || '--'}</b></div><div><span>Próxima checagem</span><b>${routine.nextCheck || '--'}</b></div></div><div class="hint">Execução calculada: ${dayDone?'dia concluído':(e.plannedTime || plan.nextDue || plan.next_due || '--')} · ${approval} · Grava: ${op.willWrite && !dayDone ? 'sim, se plano permitir' : 'não'}</div>${watchdog.lastError ? `<div class="hint danger">${watchdog.lastError}</div>` : ''}`;
   if($('easyRobotStatus')) $('easyRobotStatus').innerHTML = `<b>Status:</b> ${robotStepLabel(watchdog.status)} · <b>Último ciclo:</b> ${watchdog.lastCycleAt || '--'} · <b>Origem do plano:</b> ${origin}. Backend continua ativo mesmo com navegador externo aberto. <a href="http://localhost:3131" target="_blank" rel="noopener">Abrir painel local</a>`;
   if($('easyApprovalBadge')) $('easyApprovalBadge').textContent = isApprovalValid(routine.confirmRealUntil)?'autorizada':'bloqueada';
