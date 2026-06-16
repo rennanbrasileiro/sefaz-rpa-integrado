@@ -1,6 +1,7 @@
 // server.js — SEFAZ RPA Integrado
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const { spawn } = require('child_process');
 require('dotenv').config();
@@ -27,6 +28,17 @@ function openUrl(url) {
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+app.get('/app.js', (_req, res) => {
+  try {
+    const appJs = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf-8');
+    const validationJs = fs.existsSync(path.join(ROOT, 'public', 'validation-ui.js')) ? fs.readFileSync(path.join(ROOT, 'public', 'validation-ui.js'), 'utf-8') : '';
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store');
+    res.end(`${appJs}\n\n;${validationJs}`);
+  } catch (e) {
+    res.status(500).type('text/plain').send(e.message);
+  }
+});
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/api/validation', require('./routes/validation'));
 app.use('/api', require('./routes/api'));
