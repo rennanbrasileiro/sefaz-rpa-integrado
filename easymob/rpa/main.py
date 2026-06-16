@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from config import (
-    SITE_LOGIN, ACCESS_KEY, USERNAME, PASSWORD, MODE, DRY_RUN, CONFIRM_REAL,
+    SITE_LOGIN, ACCESS_KEY, USERNAME, PASSWORD, MODE, DRY_RUN, ENVIRONMENT_MODE, EXECUTION_MODE, CONFIRM_REAL,
     CONFIRM_CUSTOM_TIME, WATCHDOG_ENABLED, SEL_ACCESS_KEY, SEL_USERNAME, SEL_PASSWORD, SEL_BTN_LOGIN,
     SEL_BTN_REGISTER, SEL_BTN_CONSULT, DEFAULT_HEADLESS, HORARIOS, JANELA_RETRY_MINUTOS,
     DUPLICATE_TOLERANCE_MINUTES, DAILY_TARGET_MINUTES, LUNCH_MINUTES, SCREENSHOT_POLICY,
@@ -359,7 +359,7 @@ def page_has_point_screen(page) -> bool:
 
 def open_and_login(page, slow=False, report=None):
     validate_credentials()
-    log(f"Abrindo EasyMOB ({MODE}): {SITE_LOGIN}")
+    log(f"Abrindo EasyMOB: ambiente={ENVIRONMENT_MODE}; execução={EXECUTION_MODE}; grava={'sim' if (not DRY_RUN and CONFIRM_REAL) else 'não'}; url={SITE_LOGIN}")
     page.goto(SITE_LOGIN, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_load_state("domcontentloaded")
     if slow: time.sleep(0.8)
@@ -737,6 +737,9 @@ def run(demo: bool = True, headless: bool = None, slow_mo: int = 700, pause: boo
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "site_login": SITE_LOGIN,
         "mode": MODE,
+        "environment_mode": ENVIRONMENT_MODE,
+        "execution_mode": EXECUTION_MODE,
+        "will_write": bool((not DRY_RUN) and CONFIRM_REAL),
         "dry_run": DRY_RUN,
         "target_time": horario_alvo_str,
         "configured_times": HORARIOS,

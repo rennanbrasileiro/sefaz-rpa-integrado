@@ -141,3 +141,11 @@ Endpoints de agendamento expostos pelo painel:
 - `POST /api/automation/windows/uninstall`
 
 Os endpoints antigos `/api/automation/scheduler/*` continuam existindo por compatibilidade.
+
+### EasyMOB 1.1.0 — plano diário e modos sem ambiguidade
+
+O painel EasyMOB separa quatro conceitos operacionais: `environmentMode` indica se o robô abre o EasyMOB real ou o simulado; `executionMode` indica TESTE ou REAL; `realApproval` guarda a autorização diária válida até 23:59; `willWrite` é calculado pelo backend e só fica `true` quando a execução é REAL e a autorização diária está válida.
+
+O endpoint `POST /api/easymob/daily-plan` monta o plano completo do dia sem depender de horário manual. Ele usa as marcações do dia, os horários de referência (`08:00,12:00,13:00,17:00` por padrão), meta diária, almoço mínimo e tolerância de duplicidade para retornar a linha do tempo de entrada, saída de almoço, retorno de almoço e saída final. O horário de referência apenas dispara conferência; o registro real é decidido pelo horário calculado no plano.
+
+Para validar o Agendador do Windows pelo terminal, use `scripts/test_easymob_watchdog_task.bat` ou o botão **Testar tarefa do Windows** no Orquestrador. O teste executa `schtasks /Run`, consulta novamente a tarefa e mostra stdout/stderr/exitCode no painel.
