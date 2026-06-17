@@ -41,6 +41,7 @@ app.get('/app.js', (_req, res) => {
 });
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/api/validation', require('./routes/validation'));
+app.use('/api/automation', require('./routes/safeAutomationGuard'));
 app.use('/api', require('./routes/api'));
 
 // Screenshot ao vivo compartilhado pelos módulos Playwright em Node.
