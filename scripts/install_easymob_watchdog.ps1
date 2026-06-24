@@ -7,16 +7,27 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$runner = Join-Path $ProjectRoot "scripts\run_easymob_watchdog.ps1"
-if (-not (Test-Path $runner)) { throw "Arquivo não encontrado: $runner" }
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$taskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -ProjectRoot `"$ProjectRoot`""
+$ProjectRoot = (Resolve-Path $ProjectRoot).Path
+$runBat = Join-Path $ProjectRoot "scripts\run_easymob_watchdog.bat"
+if (-not (Test-Path $runBat)) { throw "Arquivo não encontrado: $runBat" }
 
-# Agenda recorrente a cada N minutos. A regra de dias úteis fica dentro do runner.py,
-# evitando XML complexo e mantendo portabilidade no Windows corporativo.
-schtasks.exe /Create /F /TN $TaskName /TR $taskCommand /SC MINUTE /MO $IntervalMinutes /ST $StartTime /ET $EndTime | Out-Host
+# Usa .bat como ação principal para evitar bloqueios de política do PowerShell corporativo.
+# A aspagem dupla é intencional para suportar OneDrive, espaços e acentos no caminho.
+$taskCommand = "cmd.exe /d /c `"`"$runBat`"`""
+
+Write-Host "Instalando tarefa: $TaskName"
+Write-Host "Projeto: $ProjectRoot"
+Write-Host "Comando: $taskCommand"
+
+$createArgs = @('/Create','/F','/TN',$TaskName,'/TR',$taskCommand,'/SC','MINUTE','/MO',"$IntervalMinutes",'/ST',$StartTime,'/ET',$EndTime)
+& schtasks.exe @createArgs
+$createCode = $LASTEXITCODE
+if ($createCode -ne 0) { throw "Falha ao criar tarefa. ExitCode=$createCode" }
 
 Write-Host "Tarefa instalada: $TaskName"
 Write-Host "Janela: $StartTime até $EndTime, a cada $IntervalMinutes min."
-Write-Host "Projeto: $ProjectRoot"
-Write-Host "Importante: modo REAL ainda exige EASYMOB_DRY_RUN=false e EASYMOB_CONFIRM_REAL=true."
+Write-Host "Validando status..."
+& schtasks.exe /Query /TN $TaskName /FO LIST /V
+exit $LASTEXITCODE

@@ -3,6 +3,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Política restrita: se o PowerShell corporativo bloquear scripts, use:
+#   scripts\run_easymob_watchdog.bat
+# ou execute diretamente: cd easymob\rpa && python runner.py --watchdog --headless
 Set-Location $ProjectRoot
 
 # Carrega .env simples, sem dependência externa. Variáveis já existentes prevalecem.

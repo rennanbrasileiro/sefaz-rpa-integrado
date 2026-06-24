@@ -35,8 +35,11 @@ USERNAME = env("EASYMOB_USERNAME")
 PASSWORD = env("EASYMOB_PASSWORD")
 
 DRY_RUN = env_bool("EASYMOB_DRY_RUN", True)
+ENVIRONMENT_MODE = env("EASYMOB_ENVIRONMENT_MODE", "simulated" if MODE in ("simulado", "local") else "real").lower()
+EXECUTION_MODE = env("EASYMOB_EXECUTION_MODE", "test" if DRY_RUN else "real").lower()
 CONFIRM_REAL = env_bool("EASYMOB_CONFIRM_REAL", False)
 CONFIRM_CUSTOM_TIME = env_bool("EASYMOB_CONFIRM_CUSTOM_TIME", False)
+WATCHDOG_ENABLED = env_bool("EASYMOB_WATCHDOG_ENABLED", False)
 DEFAULT_HEADLESS = env_bool("EASYMOB_HEADLESS_DEFAULT", False)
 
 HORARIOS = [x.strip() for x in env("EASYMOB_HORARIOS", "08:00,12:00,13:00,17:00").split(',') if x.strip()]

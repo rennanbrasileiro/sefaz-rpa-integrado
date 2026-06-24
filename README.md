@@ -107,3 +107,45 @@ Leia nesta ordem:
 6. `docs/04_CONTRATOS_MODULOS.md`
 7. `docs/05_CRITERIOS_ACEITE.md`
 
+
+## Operação diária EasyMOB e Windows
+
+1. Abra `http://localhost:3131` e confira **EasyMOB > Status de hoje**. Se o estado for de outro dia, o painel oculta o plano antigo e pede uma nova consulta.
+2. Deixe **Modo padrão = TESTE / NÃO GRAVA** para validar. TESTE nunca registra ponto.
+3. Para REAL, use **Aprovação REAL diária > Autorizar REAL hoje**. A autorização expira às 23:59 e pode ser revogada pelo painel.
+4. Clique **Ativar rotina**. Os horários configurados são apenas conferências; o plano calculado pelas marcações reais decide o horário de ação.
+5. Para iniciar o servidor com o Windows, use `scripts\install_server_startup.ps1`. Se PowerShell for bloqueado, use `scripts\run_server.bat` no Inicializar do Windows.
+6. Para watchdog no Agendador de Tarefas, use `scripts\install_easymob_watchdog.ps1`; para ambiente restrito, use `scripts\run_easymob_watchdog.bat`.
+
+Comandos úteis:
+
+```powershell
+# servidor ao logar no Windows
+.\scripts\install_server_startup.ps1
+
+# watchdog recorrente no Agendador de Tarefas
+.\scripts\install_easymob_watchdog.ps1
+
+# testar manualmente sem PowerShell
+.\scripts\run_server.bat
+.\scripts\run_easymob_watchdog.bat
+```
+
+O painel **Orquestrador > Windows** mostra o caminho dos scripts, status do agendador quando estiver em Windows e botões de verificar/instalar/testar/remover a tarefa do watchdog.
+
+Endpoints de agendamento expostos pelo painel:
+
+- `GET /api/automation/windows/status`
+- `POST /api/automation/windows/install`
+- `POST /api/automation/windows/test`
+- `POST /api/automation/windows/uninstall`
+
+Os endpoints antigos `/api/automation/scheduler/*` continuam existindo por compatibilidade.
+
+### EasyMOB 1.1.0 — plano diário e modos sem ambiguidade
+
+O painel EasyMOB separa quatro conceitos operacionais: `environmentMode` indica se o robô abre o EasyMOB real ou o simulado; `executionMode` indica TESTE ou REAL; `realApproval` guarda a autorização diária válida até 23:59; `willWrite` é calculado pelo backend e só fica `true` quando a execução é REAL e a autorização diária está válida.
+
+O endpoint `POST /api/easymob/daily-plan` monta o plano completo do dia sem depender de horário manual. Ele usa as marcações do dia, os horários de referência (`08:00,12:00,13:00,17:00` por padrão), meta diária, almoço mínimo e tolerância de duplicidade para retornar a linha do tempo de entrada, saída de almoço, retorno de almoço e saída final. O horário de referência apenas dispara conferência; o registro real é decidido pelo horário calculado no plano.
+
+Para validar o Agendador do Windows pelo terminal, use `scripts/test_easymob_watchdog_task.bat` ou o botão **Testar tarefa do Windows** no Orquestrador. O teste executa `schtasks /Run`, consulta novamente a tarefa e mostra stdout/stderr/exitCode no painel.

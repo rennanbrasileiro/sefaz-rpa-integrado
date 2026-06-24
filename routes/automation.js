@@ -3,11 +3,13 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const { buildEnvContent, buildScheduleCsv } = require('../lib/envBuilder');
 const { PROJECTS } = require('../lib/config');
 const { timeToMinutes } = require('../lib/timeHelpers');
+const stateStore = require('../lib/stateStore');
+const { buildOperationalMode } = require('../lib/easymobDailyPlan');
 
 const router = express.Router();
 const ROOT = path.join(__dirname, '..');
@@ -86,8 +88,20 @@ function readJson(file, fallback) {
   } catch (_) { return fallback; }
 }
 
-function loadConfig() { ensureDirs(); return readJson(AUTO_CFG, defaultConfig()); }
-function saveConfig(cfg) { ensureDirs(); fs.writeFileSync(AUTO_CFG, JSON.stringify({ ...defaultConfig(), ...cfg }, null, 2), 'utf-8'); }
+function loadConfig() { ensureDirs(); return mergeConfig(readJson(AUTO_CFG, {})); }
+function mergeConfig(cfg = {}) {
+  const base = defaultConfig();
+  return {
+    ...base,
+    ...cfg,
+    easyMob: { ...base.easyMob, ...(cfg.easyMob || {}) },
+    service: { ...base.service, ...(cfg.service || {}) },
+    portalRh: { ...base.portalRh, ...(cfg.portalRh || {}) },
+    channel: { ...base.channel, ...(cfg.channel || {}) },
+    monthly: { ...base.monthly, ...(cfg.monthly || {}) },
+  };
+}
+function saveConfig(cfg) { ensureDirs(); fs.writeFileSync(AUTO_CFG, JSON.stringify(mergeConfig(cfg), null, 2), 'utf-8'); }
 function loadUserConfig() { return readJson(USER_CFG, null); }
 
 function log(msg) {
@@ -180,6 +194,80 @@ function isBusinessDay(now = new Date()) {
 function runKey(moduleName, label, now = new Date()) {
   return `${now.toISOString().slice(0,10)}|${moduleName}|${label}`;
 }
+
+function nextCheckForTimes(times = [], windowMinutes = 20, now = new Date()) {
+  const normalized = (times || []).filter(t => /^\d{2}:\d{2}$/.test(String(t || ''))).sort();
+  for (let dayOffset = 0; dayOffset < 8; dayOffset++) {
+    const day = new Date(now);
+    day.setDate(day.getDate() + dayOffset);
+    if (dayOffset > 0) day.setHours(0, 0, 0, 0);
+    if (weekdayNumber(day) > 5) continue;
+    for (const hhmm of normalized) {
+      const [h, m] = hhmm.split(':').map(Number);
+      const candidate = new Date(day);
+      candidate.setHours(h, m, 0, 0);
+      const end = new Date(candidate.getTime() + Number(windowMinutes || 20) * 60000);
+      if (end >= now) return candidate.toISOString();
+    }
+  }
+  return null;
+}
+function approvalValid(until) {
+  return Boolean(until) && new Date(until).getTime() > Date.now();
+}
+function easyRoutineState(cfg) {
+  const easy = cfg.easyMob || {};
+  const times = easy.times || ['08:00', '12:00', '13:00', '17:00'];
+  return {
+    enabled: cfg.enabled !== false && easy.enabled !== false,
+    dryRun: easy.dryRun !== false,
+    confirmReal: easy.confirmReal === true && approvalValid(easy.confirmRealUntil),
+    confirmRealUntil: easy.confirmRealUntil || '',
+    approvalDaily: easy.approvalDaily === true,
+    times,
+    windowMinutes: easy.windowMinutes ?? 20,
+    retrySeconds: easy.minRetrySeconds ?? 120,
+    businessDaysOnly: easy.businessDaysOnly !== false,
+    nextCheck: nextCheckForTimes(times, easy.windowMinutes ?? 20),
+    mode: easy.dryRun === false ? 'real' : 'teste',
+  };
+}
+
+function parseSchtasksList(stdout = '') {
+  const parsed = {};
+  String(stdout || '').split(/\r?\n/).forEach(line => {
+    const idx = line.indexOf(':');
+    if (idx > 0) parsed[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
+  });
+  return parsed;
+}
+function windowsSchedulerStatus(taskName = 'SEFAZ RPA EasyMOB Watchdog') {
+  const command = `schtasks.exe /Query /TN \"${taskName}\" /FO LIST /V`;
+  const payload = { ok: process.platform === 'win32', taskName, installed: false, status: process.platform === 'win32' ? 'NotFound' : 'Unsupported', lastRunTime: '', lastResult: '', nextRunTime: '', stdout: '', stderr: process.platform === 'win32' ? '' : 'Disponível somente no Windows com schtasks.exe.', exitCode: process.platform === 'win32' ? null : -1, command, lastCheckedAt: new Date().toISOString() };
+  if (process.platform !== 'win32') return payload;
+  const result = spawnSync('schtasks.exe', ['/Query', '/TN', taskName, '/FO', 'LIST', '/V'], { encoding: 'utf-8' });
+  payload.stdout = String(result.stdout || '').slice(0, 4000);
+  payload.stderr = String(result.stderr || '').slice(0, 2000);
+  payload.exitCode = result.status ?? 0;
+  payload.installed = result.status === 0;
+  if (!payload.installed) { payload.ok = false; payload.status = 'NotFound'; return payload; }
+  const parsed = parseSchtasksList(result.stdout);
+  payload.status = parsed.status || parsed['scheduled task state'] || 'Ready';
+  payload.lastRunTime = parsed['last run time'] || '';
+  payload.lastResult = parsed['last result'] || '';
+  payload.nextRunTime = parsed['next run time'] || '';
+  payload.command = parsed['task to run'] || command;
+  return payload;
+}
+function schedulerScript(name) { return path.join(ROOT, 'scripts', name); }
+function runSchedulerScript(scriptName, args = []) {
+  if (process.platform !== 'win32') return { ok: false, status: 'unsupported_non_windows', message: 'Disponível em Windows via scripts/*.ps1 ou scripts/*.bat.' };
+  const script = schedulerScript(scriptName);
+  if (!fs.existsSync(script)) return { ok: false, status: 'missing_script', message: `Script não encontrado: ${script}` };
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...args], { cwd: ROOT, encoding: 'utf-8' });
+  return { ok: result.status === 0, status: result.status === 0 ? 'success' : 'error', stdout: result.stdout, stderr: result.stderr, exitCode: result.status, command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${script}\"` };
+}
+
 function pythonBin() { return process.env.EASYMOB_PYTHON || process.env.PYTHON || 'python'; }
 
 function spawnTracked(command, args, opts, label) {
@@ -206,7 +294,25 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
   fs.writeFileSync(SINGLE_FLAG, targetTime, 'utf-8');
   const easy = cfg.easyMob || {};
   const userCfg = loadUserConfig() || {};
-  const dryRun = easy.dryRun !== false && userCfg.easyDryRun !== false;
+  const requestedReal = easy.dryRun === false || userCfg.easyDryRun === false;
+  const realApproved = easy.confirmReal === true && approvalValid(easy.confirmRealUntil);
+  const dryRun = !(requestedReal && realApproved);
+  const operationalMode = buildOperationalMode({ easyMode: easy.mode || userCfg.easyMode || 'real', easyDryRun: dryRun, confirmReal: realApproved, easyRealApprovalUntil: easy.confirmRealUntil });
+  const critical = stateStore.readPending().filter(p => p.status !== 'closed' && p.severity === 'critical' && p.module === 'easymob');
+  if (requestedReal && !realApproved) {
+    const pending = stateStore.addPending({ module: 'easymob', type: 'execucao_real_bloqueada', severity: 'critical', cause: 'Rotina REAL sem autorização diária válida.', plannedTime: targetTime, recommendation: 'Em Configurações > EasyMOB, selecione Autorização REAL hoje e ative novamente a rotina.' });
+    stateStore.appendJournal({ module: 'easymob', action: 'real_blocked', mode: 'real', plannedTime: targetTime, status: 'blocked', severity: 'critical', reason: pending.cause, nextRecommendedAction: pending.recommendation });
+    stateStore.updateState({ easymob: { lastError: pending.cause, routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'blocked', lastCycleAt: new Date().toISOString(), lastError: pending.cause } } });
+    log(`EasyMOB REAL bloqueado: ${pending.cause}`);
+    return;
+  }
+  if (!dryRun && critical.length) {
+    const reason = `Rotina REAL bloqueada por ${critical.length} pendência(s) crítica(s).`;
+    stateStore.appendJournal({ module: 'easymob', action: 'real_blocked', mode: 'real', plannedTime: targetTime, status: 'blocked', severity: 'critical', reason, nextRecommendedAction: 'Resolver pendências antes de automatizar ponto real.' });
+    stateStore.updateState({ easymob: { lastError: reason, watchdog: { status: 'blocked', lastCycleAt: new Date().toISOString(), lastError: reason } } });
+    log(`EasyMOB REAL bloqueado: ${reason}`);
+    return;
+  }
   const env = {
     ...process.env,
     PYTHONIOENCODING: 'utf-8',
@@ -220,8 +326,12 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
     EASYMOB_JANELA_RETRY_MINUTOS: String(easy.windowMinutes ?? 20),
     EASYMOB_DUPLICATE_TOLERANCE_MINUTES: String(easy.duplicateToleranceMinutes ?? 10),
     EASYMOB_DRY_RUN: String(dryRun),
-    EASYMOB_CONFIRM_REAL: String(!dryRun && easy.confirmReal === true),
+    EASYMOB_EXECUTION_MODE: operationalMode.executionMode,
+    EASYMOB_ENVIRONMENT_MODE: operationalMode.environmentMode,
+    EASYMOB_CONFIRM_REAL: String(!dryRun && realApproved),
     EASYMOB_CONFIRM_CUSTOM_TIME: 'true',
+    EASYMOB_WATCHDOG_ENABLED: 'true',
+    EASYMOB_BUSINESS_DAYS_ONLY: String(easy.businessDaysOnly !== false),
     EASYMOB_DAILY_TARGET_MINUTES: pick(userCfg.easyDailyTargetMinutes, process.env.EASYMOB_DAILY_TARGET_MINUTES, '480'),
     EASYMOB_LUNCH_MINUTES: pick(userCfg.easyLunchMinutes, process.env.EASYMOB_LUNCH_MINUTES, '60'),
     EASYMOB_SCREENSHOT_POLICY: pick(userCfg.easyScreenshotPolicy, process.env.EASYMOB_SCREENSHOT_POLICY, 'error'),
@@ -231,10 +341,18 @@ function runEasyMobTarget(targetTime, cfg, source = 'scheduler') {
   const args = ['runner.py', '--single-run', '--slowmo', String(easy.slowmo || 700)];
   if (easy.headless !== false) args.push('--headless');
   else args.push('--demo');
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, operationalMode, watchdog: { status: 'cycle_started', lastCycleAt: new Date().toISOString() }, plannedTime: targetTime } });
+  stateStore.appendJournal({ module: 'easymob', action: 'consulta_iniciada', mode: operationalMode.executionMode, plannedTime: targetTime, status: 'started', severity: 'info', reason: `Watchdog iniciou conferência. Ambiente=${operationalMode.environmentMode}; execução=${operationalMode.executionMode}; grava=${operationalMode.willWrite ? 'sim' : 'não'}.`, willWrite: operationalMode.willWrite, environmentMode: operationalMode.environmentMode });
   spawnTracked(pythonBin(), args, { cwd: EASY_RPA, env }, `EasyMOB/${source}/${targetTime}${dryRun ? '/dry-run' : '/real'}`);
 }
 
 function runChannelFromSavedConfig(cfg) {
+  const blockingPendencies = stateStore.readPending().filter(p => p.status !== 'closed' && ['ponto_nao_registrado','janela_perdida','falha_modal','divergencia_easymob_service','divergencia_easymob_portalrh','conferencia_antes_channel'].includes(p.type));
+  if (cfg.channel?.dryRun === false && blockingPendencies.length) {
+    stateStore.updateState({ channel: { lastStatus: 'blocked', blockingPendencies } });
+    log(`Channel semanal bloqueado por ${blockingPendencies.length} pendência(s) de ponto.`);
+    return;
+  }
   const userCfg = loadUserConfig();
   if (!userCfg) { log('Channel semanal ignorado: userconfig.json ainda não existe.'); return; }
   const finalCfg = { ...userCfg, dryRun: cfg.channel?.dryRun !== false };
@@ -250,6 +368,7 @@ function runDueTasks(now = new Date()) {
   const easy = cfg.easyMob || {};
   if (easy.enabled) {
     if (easy.businessDaysOnly !== false && !isBusinessDay(now)) {
+      stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: 'waiting_business_day', lastCycleAt: now.toISOString() } } });
       return;
     }
     // EasyMOB é watchdog: não executa uma única vez e bloqueia o resto do dia.
@@ -268,6 +387,7 @@ function runDueTasks(now = new Date()) {
       }
     }
   }
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(cfg), enabled: true }, watchdog: { status: Array.from(childProcs).some(p => p.__moduleName === 'easymob') ? 'running' : 'idle', lastCycleAt: now.toISOString() } } });
   const ch = cfg.channel || {};
   if (ch.enabled && weekdayNumber(now) === Number(ch.weeklyDay || 5) && isSameMinuteHHMM(ch.weeklyTime || '16:30', now, 3)) {
     const key = runKey('channel', ch.weeklyTime || '16:30', now);
@@ -280,6 +400,9 @@ function startScheduler() {
   const cfg = loadConfig();
   running = true;
   log(`Orquestrador iniciado. enabled=${cfg.enabled}; intervalo=${cfg.checkEverySeconds || 30}s`);
+  const routine = easyRoutineState(cfg);
+  stateStore.updateState({ easymob: { routine, watchdog: { status: 'running', startedAt: new Date().toISOString(), intervalSeconds: cfg.checkEverySeconds || 30 } } });
+  stateStore.appendJournal({ module: 'easymob', action: 'rotina_ativada', mode: routine.dryRun ? 'teste' : 'real', status: 'success', severity: 'info', reason: 'Rotina diária ativada pelo orquestrador.', nextRecommendedAction: routine.dryRun ? 'Validar em TESTE antes de ativar REAL.' : 'Monitorar journal e pendências.' });
   timer = setInterval(() => {
     try { runDueTasks(new Date()); } catch (e) { log(`Erro no ciclo do orquestrador: ${e.message}`); }
   }, Math.max(10, Number(cfg.checkEverySeconds || 30)) * 1000);
@@ -288,13 +411,15 @@ function stopScheduler() {
   if (timer) clearInterval(timer);
   timer = null; running = false;
   log('Orquestrador parado.');
+  stateStore.updateState({ easymob: { routine: { ...easyRoutineState(loadConfig()), enabled: false }, watchdog: { status: 'stopped', stoppedAt: new Date().toISOString() } } });
+  stateStore.appendJournal({ module: 'easymob', action: 'rotina_parada', mode: 'controle', status: 'success', severity: 'info', reason: 'Rotina diária parada pelo usuário.' });
 }
 
 router.get('/status', (_req, res) => {
   const cfg = loadConfig();
   let fileLog = '';
   try { if (fs.existsSync(AUTO_LOG)) fileLog = fs.readFileSync(AUTO_LOG, 'utf-8').split(/\r?\n/).slice(-120).join('\n'); } catch (_) {}
-  res.json({ running, config: cfg, activeChildren: childProcs.size, log: automationLog, fileLog });
+  res.json({ running, config: cfg, routine: easyRoutineState(cfg), activeChildren: childProcs.size, log: automationLog, fileLog });
 });
 router.get('/log', (_req, res) => {
   let fileLog = '';
@@ -302,7 +427,32 @@ router.get('/log', (_req, res) => {
   res.json({ ok: true, log: automationLog, fileLog });
 });
 router.get('/config', (_req, res) => res.json({ ok: true, config: loadConfig() }));
-router.post('/config', (req, res) => { saveConfig(req.body || {}); res.json({ ok: true, config: loadConfig() }); });
+router.post('/config', (req, res) => { const incoming = req.body || {}; if (incoming.easyMob?.dryRun === false && !approvalValid(incoming.easyMob?.confirmRealUntil)) { incoming.easyMob.confirmReal = false; incoming.easyMob.approvalDaily = false; } saveConfig(incoming); const cfg = loadConfig(); const routine = easyRoutineState(cfg); stateStore.updateState({ easymob: { routine } }); stateStore.appendJournal({ module: 'easymob', action: 'rotina_configurada', mode: cfg.easyMob?.dryRun === false ? 'real' : 'teste', status: 'success', severity: 'info', reason: routine.confirmReal ? 'Rotina REAL configurada com autorização diária válida.' : 'Configuração da rotina diária salva.' }); res.json({ ok: true, config: cfg, routine }); });
+router.post('/approval/authorize', (req, res) => { const cfg = loadConfig(); const until = req.body?.until || (() => { const d = new Date(); d.setHours(23,59,59,999); return d.toISOString(); })(); cfg.easyMob = { ...(cfg.easyMob || {}), confirmReal: true, approvalDaily: true, confirmRealUntil: until }; saveConfig(cfg); const routine = easyRoutineState(loadConfig()); stateStore.updateState({ easymob: { routine, lastError: null } }); stateStore.appendJournal({ module: 'easymob', action: 'aprovacao_real_autorizada', mode: 'real', status: 'success', severity: 'warning', reason: `Autorização REAL válida até ${until}.` }); res.json({ ok: true, routine, validUntil: until }); });
+router.post('/approval/revoke', (_req, res) => { const cfg = loadConfig(); cfg.easyMob = { ...(cfg.easyMob || {}), confirmReal: false, approvalDaily: false, confirmRealUntil: '' }; saveConfig(cfg); const routine = easyRoutineState(loadConfig()); stateStore.updateState({ easymob: { routine, lastError: 'REAL bloqueado: autorização diária revogada.' } }); stateStore.appendJournal({ module: 'easymob', action: 'aprovacao_real_revogada', mode: 'real', status: 'revoked', severity: 'info', reason: 'Autorização REAL diária revogada pelo usuário.' }); res.json({ ok: true, routine }); });
+function schedulerPayload() { const status = windowsSchedulerStatus(); stateStore.updateState({ windowsScheduler: status }); return { ok: true, ...status, scripts: { runBat: 'scripts/run_easymob_watchdog.bat', runPs1: 'scripts/run_easymob_watchdog.ps1', installPs1: 'scripts/install_easymob_watchdog.ps1', uninstallPs1: 'scripts/uninstall_easymob_watchdog.ps1', testBat: 'scripts/test_easymob_watchdog_task.bat', serverBat: 'scripts/run_server.bat', serverInstallPs1: 'scripts/install_server_startup.ps1' } }; }
+function installSchedulerResponse() { const result = runSchedulerScript('install_easymob_watchdog.ps1'); stateStore.appendJournal({ module: 'easymob', action: 'windows_scheduler_install', status: result.ok ? 'success' : 'warning', severity: result.ok ? 'info' : 'warning', reason: result.message || result.stderr || 'Instalação solicitada pelo painel.' }); return result; }
+function removeSchedulerResponse() { const result = runSchedulerScript('uninstall_easymob_watchdog.ps1'); stateStore.appendJournal({ module: 'easymob', action: 'windows_scheduler_uninstall', status: result.ok ? 'success' : 'warning', severity: result.ok ? 'info' : 'warning', reason: result.message || result.stderr || 'Remoção solicitada pelo painel.' }); return result; }
+function testSchedulerResponse() {
+  const taskName = 'SEFAZ RPA EasyMOB Watchdog';
+  if (process.platform !== 'win32') return { ok: false, installed: false, taskName, status: 'Unsupported', stdout: '', stderr: 'Teste disponível em Windows com schtasks.exe /Run.', exitCode: -1, command: `schtasks.exe /Run /TN \"${taskName}\"` };
+  const command = `schtasks.exe /Run /TN \"${taskName}\"`;
+  const result = spawnSync('schtasks.exe', ['/Run', '/TN', taskName], { encoding: 'utf-8' });
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  const status = windowsSchedulerStatus(taskName);
+  const payload = { ...status, ok: result.status === 0, status: result.status === 0 ? status.status : 'Error', stdout: String(result.stdout || '') + (status.stdout ? `\n--- status ---\n${status.stdout}` : ''), stderr: result.stderr || status.stderr || '', exitCode: result.status ?? status.exitCode, command };
+  stateStore.appendJournal({ module: 'easymob', action: 'windows_scheduler_test', status: payload.ok ? 'started' : 'error', severity: payload.ok ? 'info' : 'warning', reason: payload.stderr || payload.stdout || 'Teste solicitado pelo painel.', command, exitCode: payload.exitCode });
+  stateStore.updateState({ windowsScheduler: payload });
+  return payload;
+}
+router.get('/scheduler/status', (_req, res) => res.json(schedulerPayload()));
+router.post('/scheduler/install', (_req, res) => res.json(installSchedulerResponse()));
+router.post('/scheduler/remove', (_req, res) => res.json(removeSchedulerResponse()));
+router.post('/scheduler/test', (_req, res) => res.json(testSchedulerResponse()));
+router.get('/windows/status', (_req, res) => res.json(schedulerPayload()));
+router.post('/windows/install', (_req, res) => res.json(installSchedulerResponse()));
+router.post('/windows/uninstall', (_req, res) => res.json(removeSchedulerResponse()));
+router.post('/windows/test', (_req, res) => res.json(testSchedulerResponse()));
 router.post('/start', (_req, res) => { startScheduler(); res.json({ ok: true, running }); });
 router.post('/stop', (_req, res) => { stopScheduler(); res.json({ ok: true, running }); });
 router.post('/run-now', (req, res) => {

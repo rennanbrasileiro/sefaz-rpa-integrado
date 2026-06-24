@@ -1,10 +1,19 @@
 // routes/service.js — Service Datainfo com reconexão robusta
 const { sleep, launchBrowser } = require('./helpers');
+const stateStore = require('../lib/stateStore');
 
 const SERVICE_BASE   = 'https://service.datainfo.inf.br/apex/r/data1p/service';
 const URL_LOGIN      = `${SERVICE_BASE}/login`;
 const URL_CONSULTA   = `${SERVICE_BASE}/consulta-do-lan%C3%A7amento-do-realizado`;
 const URL_LANCAMENTO = `${SERVICE_BASE}/lan%C3%A7amento-de-realizado?clear=30`;
+
+function currentMonthPeriod() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return { dataInicio: fmt(first), dataFim: fmt(last), month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` };
+}
 
 function maskUser(user = '') {
   const s = String(user || '');
@@ -286,7 +295,10 @@ async function extractConsultaRows(page) {
 
 // ─── CONSULTAR REALIZADO ──────────────────────────────────────────────────────
 async function fetchRealizado(req, res) {
-  const { serviceUser, servicePass, dataInicio, dataFim } = req.body;
+  const period = currentMonthPeriod();
+  const { serviceUser, servicePass } = req.body;
+  const dataInicio = req.body.dataInicio || period.dataInicio;
+  const dataFim = req.body.dataFim || period.dataFim;
   if (!serviceUser || !servicePass) {
     return res.status(400).json({ error: 'Credenciais do Service obrigatórias.' });
   }
@@ -318,10 +330,14 @@ async function fetchRealizado(req, res) {
     global.__rpaPage = null;
     await browser.close();
 
+    const summary = { total: rows.length, period: { dataInicio, dataFim, month: period.month }, currentUrl };
+    stateStore.updateState({ service: { lastStatus: 'success', period: summary.period, summary } });
+    stateStore.appendJournal({ module: 'service', action: 'fetch_realizado', mode: 'consulta', plannedTime: null, executedAt: new Date().toISOString(), status: 'success', reason: 'Consulta do realizado', severity: 'info' });
     res.json({
       ok: true,
       rows,
       total: rows.length,
+      period: summary.period,
       currentUrl,
       screenshotBase64: screenshot.toString('base64'),
     });
@@ -338,6 +354,8 @@ async function fetchRealizado(req, res) {
     } catch (_) {}
     global.__rpaPage = null;
     if (browser) await browser.close().catch(() => {});
+    stateStore.updateState({ service: { lastStatus: 'error', period: { dataInicio, dataFim, month: period.month }, error: e.message } });
+    stateStore.appendJournal({ module: 'service', action: 'fetch_realizado', mode: 'consulta', executedAt: new Date().toISOString(), status: 'failed', error: e.message, severity: 'error', nextRecommendedAction: 'Conferir credenciais/URL do Service e tentar novamente.' });
     res.status(500).json({ error: e.message, currentUrl, screenshotBase64 });
   }
 }
