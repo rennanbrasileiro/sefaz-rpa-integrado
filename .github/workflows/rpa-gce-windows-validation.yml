@@ -104,8 +104,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           function Invoke-Checked([string]$File, [string[]]$Arguments) {
-            & $File @Arguments
-            if ($LASTEXITCODE -ne 0) { throw "$File $($Arguments -join ' ') falhou com código $LASTEXITCODE" }
+            $process = Start-Process -FilePath $File -ArgumentList $Arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "$File $($Arguments -join ' ') falhou com código $($process.ExitCode)" }
           }
           $installer = Join-Path $env:GITHUB_WORKSPACE 'out\RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe'
           if (-not (Test-Path $installer -PathType Leaf)) { throw 'Instalador não foi gerado.' }
