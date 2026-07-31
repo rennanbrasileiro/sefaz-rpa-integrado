@@ -30,6 +30,10 @@ jobs:
           go-version: '1.23.x'
           cache: false
 
+      - name: Install deterministic build tools
+        shell: pwsh
+        run: npm install --global typescript@5.8.3 tailwindcss@4.1.10
+
       - name: Reconstruct and verify exact source
         shell: pwsh
         run: |
