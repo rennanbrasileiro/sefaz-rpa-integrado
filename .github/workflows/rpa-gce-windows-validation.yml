@@ -86,10 +86,17 @@ jobs:
           $out = Join-Path $env:GITHUB_WORKSPACE 'out'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Set-Location $project
-          npm install --no-save --ignore-scripts typescript@5.8.3
-          if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar TypeScript local.' }
-          npm install --global tailwindcss@4.1.10
-          if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar Tailwind CSS global.' }
+          npm install --no-save --ignore-scripts typescript@5.8.3 tailwindcss@4.1.10
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar ferramentas locais de build.' }
+
+          $buildCssPath = Join-Path $project 'build-css.cjs'
+          $buildCss = Get-Content $buildCssPath -Raw
+          $oldResolver = "const tailwindLib=resolveTool('tailwindcss/dist/lib.js');"
+          $newResolver = "const tailwindPackage=require.resolve('tailwindcss/package.json');`nconst tailwindLib=path.join(path.dirname(tailwindPackage),'dist','lib.js');"
+          if (-not $buildCss.Contains($oldResolver)) { throw 'Trecho esperado do resolvedor Tailwind não foi encontrado.' }
+          $buildCss = $buildCss.Replace($oldResolver, $newResolver)
+          Set-Content -Path $buildCssPath -Value $buildCss -Encoding UTF8
+
           .\build-windows.ps1 -Output (Join-Path $out 'RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe')
 
       - name: Validate install launch repair and conflicts
