@@ -1,0 +1,178 @@
+name: RPA GCE Windows installer validation
+
+on:
+  pull_request:
+    paths:
+      - 'ci/rpa-gce-v5.3.0-source.part*'
+      - '.github/workflows/rpa-gce-windows-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-validate:
+    runs-on: windows-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Install build-only UI tools
+        shell: pwsh
+        run: npm install --global typescript tailwindcss
+
+      - name: Extract source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE 'ci') -Filter 'rpa-gce-v5.3.0-source.part*' | Sort-Object Name
+          if ($parts.Count -eq 0) { throw 'Partes do código-fonte não encontradas.' }
+          $encoded = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          $source = Join-Path $env:RUNNER_TEMP 'rpa-gce-v5.3.0-source.tar.xz'
+          [IO.File]::WriteAllBytes($source, [Convert]::FromBase64String($encoded))
+          $target = Join-Path $env:GITHUB_WORKSPACE 'rpa-gce-v5.3.0'
+          if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          & tar.exe -xf $source -C $target
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o código-fonte.' }
+
+      - name: Build self-contained Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = Join-Path $env:GITHUB_WORKSPACE 'rpa-gce-v5.3.0'
+          $outputDir = Join-Path $env:GITHUB_WORKSPACE 'out'
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          Set-Location $project
+          .\build-windows.ps1 -Output (Join-Path $outputDir 'RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe')
+
+      - name: Validate install, repair, stale lock, browser open, and folder conflicts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Invoke-Checked([string]$File, [string[]]$Arguments) {
+            & $File @Arguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "$File $($Arguments -join ' ') falhou com código $LASTEXITCODE"
+            }
+          }
+
+          $installer = Join-Path $env:GITHUB_WORKSPACE 'out\RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'rpa-gce-windows-e2e'
+          if (Test-Path $testRoot) { Remove-Item $testRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+
+          $env:LOCALAPPDATA = Join-Path $testRoot 'LocalAppData'
+          $env:RPA_GCE_INSTALL_DIR = Join-Path $testRoot 'Installed'
+          $env:RPA_GCE_SILENT_ERRORS = '1'
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA,$env:RPA_GCE_INSTALL_DIR | Out-Null
+
+          $marker = Join-Path $testRoot 'browser-open.txt'
+          $probe = Join-Path $testRoot 'browser-probe.cmd'
+          @(
+            '@echo off',
+            '> "%RPA_GCE_BROWSER_MARKER%" echo %~1'
+          ) | Set-Content -Path $probe -Encoding ASCII
+          $env:RPA_GCE_BROWSER_MARKER = $marker
+          $env:RPA_GCE_BROWSER_COMMAND = $probe
+
+          # Reproduz o defeito real: lock aponta para um PID vivo, mas não existe backend saudável.
+          $lock = Join-Path $env:LOCALAPPDATA 'RPA-GCE-Correios-v5.lock'
+          $stale = [ordered]@{
+            pid = $PID
+            port = 65520
+            url = 'http://127.0.0.1:65520'
+            version = '5.3.0'
+            instanceId = 'stale-live-pid'
+          } | ConvertTo-Json -Compress
+          Set-Content -Path $lock -Value $stale -Encoding UTF8
+
+          # Executa o caminho completo do único instalador: instala, valida, inicia e abre a interface.
+          Invoke-Checked $installer @('--verify-install-and-launch')
+
+          $launcher = Join-Path $env:RPA_GCE_INSTALL_DIR 'RPA GCE Correios 5.3.0.exe'
+          $node = Join-Path $env:RPA_GCE_INSTALL_DIR 'runtime\5.3.0\node\node.exe'
+          $main = Join-Path $env:RPA_GCE_INSTALL_DIR 'app-5.3.0\main.cjs'
+          foreach ($required in @($launcher,$node,$main,$marker)) {
+            if (-not (Test-Path $required -PathType Leaf)) { throw "Arquivo obrigatório ausente após instalação: $required" }
+          }
+
+          $openedUrl = (Get-Content $marker -Raw).Trim()
+          if ($openedUrl -notmatch '^http://127\.0\.0\.1:\d+$') { throw "URL não foi aberta pelo launcher: $openedUrl" }
+          $health = Invoke-RestMethod -Uri "$openedUrl/health" -TimeoutSec 10
+          if (-not $health.ok -or -not $health.ui -or $health.version -ne '5.3.0') {
+            throw "Health check instalado inválido: $($health | ConvertTo-Json -Compress)"
+          }
+          $html = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/index.html" -TimeoutSec 10
+          $js = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/assets/app.js" -TimeoutSec 10
+          if ($html.StatusCode -ne 200 -or $html.Content -notmatch 'startup-fallback') { throw 'HTML instalado inválido.' }
+          if ($js.StatusCode -ne 200 -or $js.Content -notmatch 'ReactDOM.createRoot') { throw 'Bundle instalado inválido.' }
+
+          Invoke-RestMethod -Method Post -Uri "$openedUrl/api/close" -TimeoutSec 10 | Out-Null
+          Start-Sleep -Seconds 2
+
+          # Reinstala duas vezes no mesmo lugar. Pastas existentes não podem bloquear reparo.
+          Invoke-Checked $installer @('--silent-install')
+          Invoke-Checked $installer @('--silent-install')
+          Invoke-Checked $launcher @('--self-check')
+          Invoke-Checked $launcher @('--probe-start')
+
+          # Reproduz conflitos em que caminhos esperados como pasta já existem como arquivo.
+          $conflictRoot = Join-Path $testRoot 'ConflictInstall'
+          New-Item -ItemType Directory -Force -Path $conflictRoot | Out-Null
+          Set-Content -Path (Join-Path $conflictRoot 'runtime') -Value 'arquivo conflitante' -Encoding UTF8
+          Set-Content -Path (Join-Path $conflictRoot 'app-5.3.0') -Value 'arquivo conflitante' -Encoding UTF8
+          $env:RPA_GCE_INSTALL_DIR = $conflictRoot
+          Invoke-Checked $installer @('--silent-install')
+
+          if (-not (Get-ChildItem $conflictRoot -Filter 'runtime.conflito-*' -File -ErrorAction SilentlyContinue)) {
+            throw 'O conflito do caminho runtime não foi preservado e reparado.'
+          }
+          if (-not (Get-ChildItem $conflictRoot -Filter 'app-5.3.0.conflito-*' -File -ErrorAction SilentlyContinue)) {
+            throw 'O conflito do caminho app-5.3.0 não foi preservado e reparado.'
+          }
+          $conflictLauncher = Join-Path $conflictRoot 'RPA GCE Correios 5.3.0.exe'
+          Invoke-Checked $conflictLauncher @('--self-check')
+          Invoke-Checked $conflictLauncher @('--probe-start')
+
+          $result = [ordered]@{
+            validatedAt = (Get-Date).ToUniversalTime().ToString('o')
+            installer = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+            installAndLaunch = $true
+            browserUrlOpened = $openedUrl
+            healthVersion = $health.version
+            staleLivePidLockRecovered = $true
+            repeatInstall = $true
+            existingPathConflictsRecovered = $true
+            embeddedNode = (& $node --version).Trim()
+          }
+          $result | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $env:GITHUB_WORKSPACE 'out\WINDOWS-E2E-RESULT.json') -Encoding UTF8
+
+          Copy-Item (Join-Path $testRoot 'Installed\installer.log') (Join-Path $env:GITHUB_WORKSPACE 'out\installer-e2e.log') -Force
+          $launcherLog = Join-Path $env:LOCALAPPDATA 'RPA GCE Correios\launcher.log'
+          if (Test-Path $launcherLog) { Copy-Item $launcherLog (Join-Path $env:GITHUB_WORKSPACE 'out\launcher-e2e.log') -Force }
+
+      - name: Upload validated installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpa-gce-windows-5.3.0
+          path: |
+            out/RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe
+            out/SHA256-RPA-GCE-V5.3.0.txt
+            out/WINDOWS-E2E-RESULT.json
+            out/*.log
+          if-no-files-found: warn
+          retention-days: 7
