@@ -30,10 +30,6 @@ jobs:
           go-version: '1.23.x'
           cache: false
 
-      - name: Install deterministic build tools
-        shell: pwsh
-        run: npm install --global typescript@5.8.3 tailwindcss@4.1.10
-
       - name: Reconstruct and verify exact source
         shell: pwsh
         run: |
@@ -90,6 +86,8 @@ jobs:
           $out = Join-Path $env:GITHUB_WORKSPACE 'out'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Set-Location $project
+          npm install --no-save --ignore-scripts typescript@5.8.3 tailwindcss@4.1.10
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar ferramentas locais de build.' }
           .\build-windows.ps1 -Output (Join-Path $out 'RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe')
 
       - name: Validate install launch repair and conflicts
