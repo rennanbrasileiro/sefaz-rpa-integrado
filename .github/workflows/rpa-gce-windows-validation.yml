@@ -28,25 +28,53 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
+          cache: false
 
-      - name: Install build-only UI tools
-        shell: pwsh
-        run: npm install --global typescript tailwindcss
-
-      - name: Extract source
+      - name: Extract source safely
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $parts = Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE 'ci') -Filter 'rpa-gce-v5.3.0-source.part*' | Sort-Object Name
           if ($parts.Count -eq 0) { throw 'Partes do código-fonte não encontradas.' }
-          $encoded = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+
+          $builder = [System.Text.StringBuilder]::new()
+          $complete = $false
+          foreach ($part in $parts) {
+            $text = (Get-Content -LiteralPath $part.FullName -Raw).Trim().TrimStart([char]0xFEFF)
+            $invalid = [regex]::Match($text, '[^A-Za-z0-9+/=]')
+            if ($invalid.Success) {
+              throw "Parte $($part.Name) contém caractere inválido na posição $($invalid.Index)."
+            }
+            $paddingIndex = $text.IndexOf('=')
+            Write-Host "$($part.Name): tamanho=$($text.Length), padding=$paddingIndex, inicio=$($text.Substring(0,[Math]::Min(12,$text.Length))), fim=$($text.Substring([Math]::Max(0,$text.Length-12)))"
+            [void]$builder.Append($text)
+            if ($paddingIndex -ge 0) {
+              if ($text.Substring($paddingIndex) -notmatch '^={1,2}$') {
+                throw "Padding inválido em $($part.Name)."
+              }
+              $complete = $true
+              Write-Host "Fim do arquivo-base64 encontrado em $($part.Name). Partes posteriores serão ignoradas."
+              break
+            }
+          }
+          if (-not $complete) { throw 'Nenhum padding final foi encontrado nas partes do código-fonte.' }
+
+          $encoded = $builder.ToString()
+          if (($encoded.Length % 4) -ne 0) { throw "Base64 com tamanho inválido: $($encoded.Length)." }
           $source = Join-Path $env:RUNNER_TEMP 'rpa-gce-v5.3.0-source.tar.xz'
           [IO.File]::WriteAllBytes($source, [Convert]::FromBase64String($encoded))
+          Write-Host "Arquivo reconstruído: $source, bytes=$((Get-Item $source).Length), sha256=$((Get-FileHash -Algorithm SHA256 $source).Hash.ToLowerInvariant())"
+
           $target = Join-Path $env:GITHUB_WORKSPACE 'rpa-gce-v5.3.0'
           if (Test-Path $target) { Remove-Item $target -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           & tar.exe -xf $source -C $target
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o código-fonte.' }
+          foreach ($required in @('build-windows.ps1','package.json','main.cjs','installer\main.go','launcher\main.go')) {
+            if (-not (Test-Path (Join-Path $target $required) -PathType Leaf)) { throw "Arquivo-fonte ausente: $required" }
+          }
+          $pkg = Get-Content (Join-Path $target 'package.json') -Raw | ConvertFrom-Json
+          if ($pkg.version -ne '5.3.0') { throw "Versão inesperada no fonte: $($pkg.version)" }
 
       - name: Build self-contained Windows installer
         shell: pwsh
@@ -64,12 +92,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           function Invoke-Checked([string]$File, [string[]]$Arguments) {
             & $File @Arguments
-            if ($LASTEXITCODE -ne 0) {
-              throw "$File $($Arguments -join ' ') falhou com código $LASTEXITCODE"
-            }
+            if ($LASTEXITCODE -ne 0) { throw "$File $($Arguments -join ' ') falhou com código $LASTEXITCODE" }
           }
 
           $installer = Join-Path $env:GITHUB_WORKSPACE 'out\RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe'
+          if (-not (Test-Path $installer -PathType Leaf)) { throw 'Instalador não foi gerado.' }
           $testRoot = Join-Path $env:RUNNER_TEMP 'rpa-gce-windows-e2e'
           if (Test-Path $testRoot) { Remove-Item $testRoot -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
@@ -81,25 +108,14 @@ jobs:
 
           $marker = Join-Path $testRoot 'browser-open.txt'
           $probe = Join-Path $testRoot 'browser-probe.cmd'
-          @(
-            '@echo off',
-            '> "%RPA_GCE_BROWSER_MARKER%" echo %~1'
-          ) | Set-Content -Path $probe -Encoding ASCII
+          @('@echo off','> "%RPA_GCE_BROWSER_MARKER%" echo %~1') | Set-Content -Path $probe -Encoding ASCII
           $env:RPA_GCE_BROWSER_MARKER = $marker
           $env:RPA_GCE_BROWSER_COMMAND = $probe
 
-          # Reproduz o defeito real: lock aponta para um PID vivo, mas não existe backend saudável.
           $lock = Join-Path $env:LOCALAPPDATA 'RPA-GCE-Correios-v5.lock'
-          $stale = [ordered]@{
-            pid = $PID
-            port = 65520
-            url = 'http://127.0.0.1:65520'
-            version = '5.3.0'
-            instanceId = 'stale-live-pid'
-          } | ConvertTo-Json -Compress
+          $stale = [ordered]@{ pid=$PID; port=65520; url='http://127.0.0.1:65520'; version='5.3.0'; instanceId='stale-live-pid' } | ConvertTo-Json -Compress
           Set-Content -Path $lock -Value $stale -Encoding UTF8
 
-          # Executa o caminho completo do único instalador: instala, valida, inicia e abre a interface.
           Invoke-Checked $installer @('--verify-install-and-launch')
 
           $launcher = Join-Path $env:RPA_GCE_INSTALL_DIR 'RPA GCE Correios 5.3.0.exe'
@@ -112,9 +128,7 @@ jobs:
           $openedUrl = (Get-Content $marker -Raw).Trim()
           if ($openedUrl -notmatch '^http://127\.0\.0\.1:\d+$') { throw "URL não foi aberta pelo launcher: $openedUrl" }
           $health = Invoke-RestMethod -Uri "$openedUrl/health" -TimeoutSec 10
-          if (-not $health.ok -or -not $health.ui -or $health.version -ne '5.3.0') {
-            throw "Health check instalado inválido: $($health | ConvertTo-Json -Compress)"
-          }
+          if (-not $health.ok -or -not $health.ui -or $health.version -ne '5.3.0') { throw "Health inválido: $($health | ConvertTo-Json -Compress)" }
           $html = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/index.html" -TimeoutSec 10
           $js = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/assets/app.js" -TimeoutSec 10
           if ($html.StatusCode -ne 200 -or $html.Content -notmatch 'startup-fallback') { throw 'HTML instalado inválido.' }
@@ -123,44 +137,37 @@ jobs:
           Invoke-RestMethod -Method Post -Uri "$openedUrl/api/close" -TimeoutSec 10 | Out-Null
           Start-Sleep -Seconds 2
 
-          # Reinstala duas vezes no mesmo lugar. Pastas existentes não podem bloquear reparo.
           Invoke-Checked $installer @('--silent-install')
           Invoke-Checked $installer @('--silent-install')
           Invoke-Checked $launcher @('--self-check')
           Invoke-Checked $launcher @('--probe-start')
 
-          # Reproduz conflitos em que caminhos esperados como pasta já existem como arquivo.
           $conflictRoot = Join-Path $testRoot 'ConflictInstall'
           New-Item -ItemType Directory -Force -Path $conflictRoot | Out-Null
           Set-Content -Path (Join-Path $conflictRoot 'runtime') -Value 'arquivo conflitante' -Encoding UTF8
           Set-Content -Path (Join-Path $conflictRoot 'app-5.3.0') -Value 'arquivo conflitante' -Encoding UTF8
           $env:RPA_GCE_INSTALL_DIR = $conflictRoot
           Invoke-Checked $installer @('--silent-install')
-
-          if (-not (Get-ChildItem $conflictRoot -Filter 'runtime.conflito-*' -File -ErrorAction SilentlyContinue)) {
-            throw 'O conflito do caminho runtime não foi preservado e reparado.'
-          }
-          if (-not (Get-ChildItem $conflictRoot -Filter 'app-5.3.0.conflito-*' -File -ErrorAction SilentlyContinue)) {
-            throw 'O conflito do caminho app-5.3.0 não foi preservado e reparado.'
-          }
+          if (-not (Get-ChildItem $conflictRoot -Filter 'runtime.conflito-*' -File -ErrorAction SilentlyContinue)) { throw 'Conflito runtime não foi reparado.' }
+          if (-not (Get-ChildItem $conflictRoot -Filter 'app-5.3.0.conflito-*' -File -ErrorAction SilentlyContinue)) { throw 'Conflito app não foi reparado.' }
           $conflictLauncher = Join-Path $conflictRoot 'RPA GCE Correios 5.3.0.exe'
           Invoke-Checked $conflictLauncher @('--self-check')
           Invoke-Checked $conflictLauncher @('--probe-start')
 
           $result = [ordered]@{
-            validatedAt = (Get-Date).ToUniversalTime().ToString('o')
-            installer = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
-            installAndLaunch = $true
-            browserUrlOpened = $openedUrl
-            healthVersion = $health.version
-            staleLivePidLockRecovered = $true
-            repeatInstall = $true
-            existingPathConflictsRecovered = $true
-            embeddedNode = (& $node --version).Trim()
+            validatedAt=(Get-Date).ToUniversalTime().ToString('o')
+            installer=(Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+            installAndLaunch=$true
+            browserUrlOpened=$openedUrl
+            healthVersion=$health.version
+            staleLivePidLockRecovered=$true
+            repeatInstall=$true
+            existingPathConflictsRecovered=$true
+            embeddedNode=(& $node --version).Trim()
           }
           $result | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $env:GITHUB_WORKSPACE 'out\WINDOWS-E2E-RESULT.json') -Encoding UTF8
-
-          Copy-Item (Join-Path $testRoot 'Installed\installer.log') (Join-Path $env:GITHUB_WORKSPACE 'out\installer-e2e.log') -Force
+          $installerLog = Join-Path $testRoot 'Installed\installer.log'
+          if (Test-Path $installerLog) { Copy-Item $installerLog (Join-Path $env:GITHUB_WORKSPACE 'out\installer-e2e.log') -Force }
           $launcherLog = Join-Path $env:LOCALAPPDATA 'RPA GCE Correios\launcher.log'
           if (Test-Path $launcherLog) { Copy-Item $launcherLog (Join-Path $env:GITHUB_WORKSPACE 'out\launcher-e2e.log') -Force }
 
