@@ -46,11 +46,12 @@ jobs:
           foreach ($n in 4..7) { Add-Source $n }
           Add-Repair 'rpa-gce-v5.3.0-repair08.part*'
           Add-Source 9
-          Add-Repair 'rpa-gce-v5.3.0-repair10.part*'
+          Add-Repair 'rpa-gce-v5.3.0-repair10.fix*'
+          $ordered.Add((Join-Path $ci 'rpa-gce-v5.3.0-repair10.part2'))
           foreach ($n in 11..12) { Add-Source $n }
           Add-Repair 'rpa-gce-v5.3.0-repair13.part*'
           foreach ($n in 14..26) { Add-Source $n }
-          if ($ordered.Count -ne 35) { throw "Quantidade inesperada de segmentos: $($ordered.Count)." }
+          if ($ordered.Count -ne 36) { throw "Quantidade inesperada de segmentos: $($ordered.Count)." }
 
           $builder = [System.Text.StringBuilder]::new()
           foreach ($file in $ordered) {
