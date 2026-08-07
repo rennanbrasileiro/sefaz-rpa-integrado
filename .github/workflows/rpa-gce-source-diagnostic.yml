@@ -1,0 +1,56 @@
+name: RPA GCE source diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'ci/rpa-gce-v5.3.0-*'
+      - '.github/workflows/rpa-gce-source-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and inspect every segment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $ci=Join-Path $env:GITHUB_WORKSPACE 'ci'
+          $ordered=[System.Collections.Generic.List[string]]::new()
+          function Add-Source([int]$n){$ordered.Add((Join-Path $ci ('rpa-gce-v5.3.0-source.part{0:d2}' -f $n)))}
+          function Add-Repair([string]$pattern){Get-ChildItem $ci -Filter $pattern|Sort-Object Name|%{$ordered.Add($_.FullName)}}
+          Add-Source 0
+          Add-Repair 'rpa-gce-v5.3.0-repair01.part*'
+          Add-Source 2
+          Add-Repair 'rpa-gce-v5.3.0-repair03.part*'
+          foreach($n in 4..7){Add-Source $n}
+          Add-Repair 'rpa-gce-v5.3.0-repair08.part*'
+          Add-Source 9
+          Add-Repair 'rpa-gce-v5.3.0-repair10.part*'
+          foreach($n in 11..12){Add-Source $n}
+          Add-Repair 'rpa-gce-v5.3.0-repair13.part*'
+          foreach($n in 14..26){Add-Source $n}
+          $b=[Text.StringBuilder]::new()
+          foreach($f in $ordered){
+            $t=(Get-Content $f -Raw).Trim().TrimStart([char]0xFEFF)
+            $h=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::ASCII.GetBytes($t))).ToLowerInvariant()
+            Write-Host "SEGMENT $(Split-Path $f -Leaf) LEN=$($t.Length) SHA=$h START=$($t.Substring(0,12)) END=$($t.Substring($t.Length-12))"
+            [void]$b.Append($t)
+          }
+          $s=$b.ToString(); Write-Host "TOTAL LEN=$($s.Length)"
+          $archive=Join-Path $env:RUNNER_TEMP 'source.tar.xz'
+          [IO.File]::WriteAllBytes($archive,[Convert]::FromBase64String($s))
+          $hash=(Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "ARCHIVE SIZE=$((Get-Item $archive).Length) SHA=$hash"
+          & tar.exe -tf $archive
+          if($LASTEXITCODE-ne 0){throw 'Arquivo reconstruído não é um tar.xz válido.'}
+          $dest=Join-Path $env:RUNNER_TEMP 'source'
+          New-Item $dest -ItemType Directory -Force|Out-Null
+          & tar.exe -xf $archive -C $dest
+          $pkg=Get-Content (Join-Path $dest 'package.json') -Raw|ConvertFrom-Json
+          Write-Host "PACKAGE VERSION=$($pkg.version)"
+          if($pkg.version-ne'5.3.0'){throw 'Versão inválida.'}

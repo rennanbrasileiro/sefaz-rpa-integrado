@@ -1,0 +1,139 @@
+name: RPA GCE final Windows E2E artifact validation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rpa-gce-windows-e2e-artifact.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  validate-exact-installer:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download exact built installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          gh run download 30654618030 --repo rennanbrasileiro/sefaz-rpa-integrado --name rpa-gce-windows-5.3.0 --dir $out
+          if ($LASTEXITCODE -ne 0) { throw 'Não foi possível baixar o instalador compilado no Windows.' }
+          $installer = Join-Path $out 'RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe'
+          if (-not (Test-Path $installer -PathType Leaf)) { throw 'Instalador não encontrado no artefato.' }
+          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+          if ($hash -ne '694b3e64b217c36a993d7897908a68c10bb8c7b7ef2b5c3b636b9483737089b0') { throw "Hash inesperado do instalador: $hash" }
+
+      - name: Install launch repair reinstall and recover path conflicts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Invoke-Checked([string]$File, [string[]]$Arguments, [int]$TimeoutMs = 180000) {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $File
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            foreach ($argument in $Arguments) { [void]$psi.ArgumentList.Add($argument) }
+            $process = [System.Diagnostics.Process]::Start($psi)
+            if (-not $process.WaitForExit($TimeoutMs)) {
+              try { $process.Kill($true) } catch {}
+              throw "$File excedeu o tempo de $TimeoutMs ms."
+            }
+            if ($process.ExitCode -ne 0) { throw "$File $($Arguments -join ' ') falhou com código $($process.ExitCode)." }
+          }
+
+          $installer = Join-Path $env:GITHUB_WORKSPACE 'out\RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'rpa-gce-final-e2e'
+          if (Test-Path $testRoot) { Remove-Item $testRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+          $env:LOCALAPPDATA = Join-Path $testRoot 'LocalAppData'
+          $env:RPA_GCE_INSTALL_DIR = Join-Path $testRoot 'Installed'
+          $env:RPA_GCE_SILENT_ERRORS = '1'
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA,$env:RPA_GCE_INSTALL_DIR | Out-Null
+
+          $marker = Join-Path $testRoot 'browser-open.txt'
+          $probe = Join-Path $testRoot 'browser-probe.cmd'
+          @('@echo off','> "%RPA_GCE_BROWSER_MARKER%" echo %~1') | Set-Content -Path $probe -Encoding ASCII
+          $env:RPA_GCE_BROWSER_MARKER = $marker
+          $env:RPA_GCE_BROWSER_COMMAND = $probe
+
+          $lock = Join-Path $env:LOCALAPPDATA 'RPA-GCE-Correios-v5.lock'
+          [ordered]@{pid=$PID;port=65520;url='http://127.0.0.1:65520';version='5.3.0';instanceId='stale-live-pid'} | ConvertTo-Json -Compress | Set-Content $lock -Encoding UTF8
+
+          Invoke-Checked $installer @('--verify-install-and-launch')
+
+          $launcher = Join-Path $env:RPA_GCE_INSTALL_DIR 'RPA GCE Correios 5.3.0.exe'
+          $node = Join-Path $env:RPA_GCE_INSTALL_DIR 'runtime\5.3.0\node\node.exe'
+          $main = Join-Path $env:RPA_GCE_INSTALL_DIR 'app-5.3.0\main.cjs'
+          foreach ($required in @($launcher,$node,$main,$marker)) {
+            if (-not (Test-Path $required -PathType Leaf)) { throw "Arquivo obrigatório ausente após instalação: $required" }
+          }
+
+          $openedUrl = (Get-Content $marker -Raw).Trim()
+          if ($openedUrl -notmatch '^http://127\.0\.0\.1:\d+$') { throw "O launcher não abriu uma URL local válida: $openedUrl" }
+          $health = Invoke-RestMethod -Uri "$openedUrl/health" -TimeoutSec 10
+          if (-not $health.ok -or -not $health.ui -or $health.version -ne '5.3.0') { throw "Health inválido: $($health | ConvertTo-Json -Compress)" }
+          $html = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/index.html" -TimeoutSec 10
+          $js = Invoke-WebRequest -UseBasicParsing -Uri "$openedUrl/assets/app.js" -TimeoutSec 10
+          if ($html.StatusCode -ne 200 -or $html.Content -notmatch 'startup-fallback') { throw 'HTML instalado inválido.' }
+          if ($js.StatusCode -ne 200 -or $js.Content -notmatch 'ReactDOM.createRoot') { throw 'JavaScript instalado inválido.' }
+          Invoke-RestMethod -Method Post -Uri "$openedUrl/api/close" -TimeoutSec 10 | Out-Null
+          Start-Sleep -Seconds 2
+
+          Invoke-Checked $installer @('--silent-install')
+          Invoke-Checked $installer @('--silent-install')
+          Invoke-Checked $launcher @('--self-check')
+          Invoke-Checked $launcher @('--probe-start')
+
+          $conflictRoot = Join-Path $testRoot 'ConflictInstall'
+          New-Item -ItemType Directory -Force -Path $conflictRoot | Out-Null
+          Set-Content (Join-Path $conflictRoot 'runtime') 'arquivo conflitante' -Encoding UTF8
+          Set-Content (Join-Path $conflictRoot 'app-5.3.0') 'arquivo conflitante' -Encoding UTF8
+          $env:RPA_GCE_INSTALL_DIR = $conflictRoot
+          Invoke-Checked $installer @('--silent-install')
+          if (-not (Get-ChildItem $conflictRoot -Filter 'runtime.conflito-*' -File -ErrorAction SilentlyContinue)) { throw 'O conflito de pasta runtime não foi reparado.' }
+          if (-not (Get-ChildItem $conflictRoot -Filter 'app-5.3.0.conflito-*' -File -ErrorAction SilentlyContinue)) { throw 'O conflito de pasta app não foi reparado.' }
+          $conflictLauncher = Join-Path $conflictRoot 'RPA GCE Correios 5.3.0.exe'
+          Invoke-Checked $conflictLauncher @('--self-check')
+          Invoke-Checked $conflictLauncher @('--probe-start')
+
+          [ordered]@{
+            validatedAt = (Get-Date).ToUniversalTime().ToString('o')
+            windows = [Environment]::OSVersion.VersionString
+            installerSha256 = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+            installAndLaunch = $true
+            browserUrlOpened = $openedUrl
+            healthVersion = $health.version
+            staleLivePidLockRecovered = $true
+            repeatInstall = $true
+            existingPathConflictsRecovered = $true
+            embeddedNode = (& $node --version).Trim()
+          } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $env:GITHUB_WORKSPACE 'out\WINDOWS-E2E-RESULT.json') -Encoding UTF8
+
+      - name: Collect diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'out'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'rpa-gce-final-e2e'
+          Get-ChildItem $testRoot -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $out ($_.Directory.Name + '-' + $_.Name)) -Force
+          }
+
+      - name: Upload Windows-validated installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpa-gce-windows-5.3.0-final-validated
+          path: |
+            out/RPA-GCE-Correios-Instalador-Oficial-5.3.0.exe
+            out/WINDOWS-E2E-RESULT.json
+            out/*.log
+          if-no-files-found: warn
+          retention-days: 7
